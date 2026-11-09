@@ -1,12 +1,12 @@
 ---
 name: wh40k-list-builder
-description: Build the strongest legal Warhammer 40,000 (11th edition) army list for a player's needs using live BSData unit data (points, datasheets, weapons, detachments, enhancements) plus mathhammer analysis and an optimiser, returning the lists on screen and as an Excel workbook. Use this whenever someone wants to create, optimise, improve, compare or check a 40k army list — e.g. "hazme una lista de necrones a 2000", "best Space Marines list with what I own", "what should I add to my Tyranids for 1000 pts", "list to beat Imperial Knights", "is this list legal / how many points" — even if they don't say "list" and only mention a faction, points, detachments, units or their collection. Also for questions about unit value per point or which detachment fits a playstyle.
+description: Build the strongest legal Warhammer 40,000 (11th edition) army list for a player's needs using live BSData unit data (points, datasheets, weapons, detachments, enhancements) plus mathhammer analysis and an optimiser, returning one list on screen only (never alternatives, Excel or other files). Use this whenever someone wants to create, optimise, improve, compare or check a 40k army list — e.g. "hazme una lista de necrones a 2000", "best Space Marines list with what I own", "what should I add to my Tyranids for 1000 pts", "list to beat Imperial Knights", "is this list legal / how many points" — even if they don't say "list" and only mention a faction, points, detachments, units or their collection. Also for questions about unit value per point or which detachment fits a playstyle.
 ---
 
 # Warhammer 40k 11th edition list builder
 
-You build army lists that are **legal**, **as strong as possible for what the player
-wants**, and **explained**. Strength comes from two sources that you combine:
+You build **one** army list that is **legal**, **as strong as possible for what the
+player wants**, and **explained**. Strength comes from two sources that you combine:
 
 1. **Numbers** — scripts read the current BSData files (github.com/BSData/wh40k-11e)
    and compute damage, durability and objective control per point, then search unit
@@ -103,7 +103,8 @@ python3 scripts/optimize.py "<faction>" --points 2000 \
 Treat the output as a strong draft, not the answer. Review it with the synergy
 checklist in `references/list-strategy.md` § 4 (detachment fit, leaders, enhancements,
 delivery, roles, leftover points) and adjust. Re-run with different `--must`/weights
-when you change your mind; that is cheap.
+when you change your mind; that is cheap. `--top 3` is only for you to pick the
+strongest draft; present a single list.
 
 ## Step 6 — Validate
 
@@ -134,36 +135,23 @@ eligibility, Leader/Support attachments, and prints the list in a clean format. 
 error. Resolve warnings or explain them to the user. Never present a list that fails
 this check.
 
-## Step 7 — Alternatives
+## Step 7 — Measure the chosen list
 
-Build 2–3 alternatives that differ meaningfully — e.g. a more aggressive and a more
-defensive version, a different detachment setup, or a version tuned against the
-opponent the user named. Validate each one with `check_list.py`, then compare them:
-
-```bash
-python3 scripts/metrics.py --compare main.json alt_a.json alt_b.json
-```
-
-It prints, per list, units, models, anti-horde / anti-elite / anti-tank output,
-durability against heavy and anti-tank fire, and total OC (add `"loadout"` to a unit
-entry in the JSON for multi-weapon models). Use those numbers in the comparison table.
-
-## Step 8 — Export to Excel
-
-Always deliver the lists twice: on screen (the answer below) **and** as an Excel workbook
-the player can keep, print or share. Put the main list first:
+Run metrics on the validated list so the explanation can quote numbers (add `"loadout"`
+to a unit entry in the JSON for multi-weapon models):
 
 ```bash
-python3 scripts/export_xlsx.py main.json alt_1.json alt_2.json -o <output dir>/<faction>_<points>.xlsx --lang es
+python3 scripts/metrics.py --compare main.json
 ```
 
-`--lang es|en` follows the user's language. The workbook has a comparison sheet (points,
-DP, units, enhancements, anti-horde/elite/tank, durability, OC, legal) and one sheet per
-list with the unit table, points breakdown with a SUM formula, attachments, wargear and
-validation result. Save it where the user can open it (their working directory or the
-outputs folder you were given) and give the path at the end of the answer. If the export
-fails (e.g. `openpyxl` missing: `pip install openpyxl`), say so and still give the lists
-on screen.
+It prints units, models, anti-horde / anti-elite / anti-tank output, durability against
+heavy and anti-tank fire, and total OC. Use those numbers in "Why this list".
+
+## Step 8 — Show one list on screen only
+
+The only deliverable is the chat answer: **exactly one** list. Do not offer
+alternatives. Do **not** export Excel, CSV, PDF or any other file. Scratch JSON used
+with `check_list.py` is internal; do not present those paths as the result.
 
 ## Output format
 
@@ -188,18 +176,6 @@ English as in the data/app so the user can type them into their list builder.
 
 ## How to play it (short)
 Deployment, first turns, what to protect, what to trade.
-
-## Alternatives
-| | Main | Alt A (…) | Alt B (…) |
-|---|---|---|---|
-| Points / units | | | |
-| Anti-horde / anti-elite / anti-tank | | | |
-| Durability / OC | | | |
-| Best against / weakest against | | | |
-Then each alternative's list block (or the diff vs. the main list if it is small).
-
-## Excel
-Path to the .xlsx file (comparison sheet + one sheet per list).
 
 ## Notes
 - Assumptions (defaults you chose, Onslaught limits if relevant, etc.).

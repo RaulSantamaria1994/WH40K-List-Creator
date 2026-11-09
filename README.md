@@ -4,7 +4,7 @@ Skill de Claude para crear **listas de ejército de Warhammer 40,000 (11ª edici
 optimizadas según lo que necesita el jugador: facción, puntos, miniaturas que tiene, estilo de
 juego y rival. Usa los datos de la comunidad [BSData/wh40k-11e](https://github.com/BSData/wh40k-11e)
 (puntos, datasheets, armas, destacamentos y mejoras), cálculos de daño esperado (mathhammer) y un
-optimizador. Devuelve las listas en pantalla y en un Excel.
+optimizador. Devuelve las listas **solo en pantalla**.
 
 > Proyecto no oficial. Warhammer 40,000 es una marca de Games Workshop. Los datos son de BSData,
 > mantenidos por la comunidad.
@@ -13,7 +13,7 @@ optimizador. Devuelve las listas en pantalla y en un Excel.
 
 Pídele a Claude algo como:
 
-- «Hazme una lista de Necrones a 2000 puntos para torneo, equilibrada, con alguna alternativa»
+- «Hazme una lista de Necrones a 2000 puntos para torneo, equilibrada»
 - «Tengo 1 Captain, 10 Intercessors, 5 Terminators y un Repulsor: la mejor lista de 1000 pts, juego agresivo»
 - «Lista de Tiránidos a 2000 para ganar a mi colega que juega Imperial Knights, me gustan los monstruos»
 - «¿Es legal esta lista? ¿Cuántos puntos suma?»
@@ -27,13 +27,12 @@ Y la skill:
 5. Busca combinaciones con un optimizador que respeta tu colección, los límites de copias y tu estilo.
 6. Revisa sinergias (líderes, mejoras, reglas del destacamento, transportes, roles).
 7. Valida la lista: puntos, DP, etiquetas únicas, límites de copias, mejoras, personajes Leader/Support, equipo de pago.
-8. Propone 2–3 alternativas comparadas con números.
-9. Exporta todo a Excel.
+8. Muestra **una sola lista** en pantalla, con explicación por roles y cómo jugarla.
 
 ### Ejemplo de salida
 
-Cada respuesta incluye la lista principal en el formato de abajo, una explicación por roles con
-cifras, cómo jugarla, una tabla comparativa de alternativas y la ruta del Excel.
+Cada respuesta incluye **una sola lista** en el formato de abajo, una explicación por roles con
+cifras y cómo jugarla. No propone alternativas ni genera Excel ni otros archivos.
 
 ```
 Necrons - Strike Force (1995/2000 pts)
@@ -48,10 +47,6 @@ OTHER UNITS
 TOTAL: 1995 / 2000 pts  —  data: BSData wh40k-11e 8e52807 2026-11-09
 ✓ Legal by the checks in this script (points, DP, unique tags, unit limits, enhancements, attachments)
 ```
-
-El Excel trae una hoja **Comparativa** (puntos, destacamentos, unidades, mejoras, daño
-anti-horda / anti-élite / anti-tanque, aguante, OC, legalidad) y una hoja por lista con el desglose
-de puntos (total con fórmula `SUM`), personajes adjuntos, equipo y resultado de la validación.
 
 ## Instalación
 
@@ -79,7 +74,6 @@ cp -r .claude/skills/wh40k-list-builder ~/.claude/skills/
 ### Requisitos
 
 - Python 3.9+
-- `openpyxl` (solo para el Excel): `pip install openpyxl`
 - `git` (recomendado) o acceso HTTPS a `github.com` para descargar los datos la primera vez.
   Los datos se guardan en `~/.cache/wh40k-11e` (configurable con `WH40K_DATA_DIR`) y se refrescan cada 12 h.
 
@@ -95,7 +89,6 @@ Claude. Los nombres de facción se buscan de forma flexible (`necrons`, `blood a
 | `metrics.py` | Mathhammer por unidad, y comparación de listas completas (`--compare`) |
 | `optimize.py` | Busca combinaciones de unidades bajo un presupuesto de puntos |
 | `check_list.py` | Calcula puntos, valida e imprime una lista |
-| `export_xlsx.py` | Exporta una o varias listas a Excel |
 
 ```bash
 cd .claude/skills/wh40k-list-builder
@@ -123,10 +116,6 @@ python3 scripts/optimize.py necrons --points 2000 --must "Overlord,Lychguard:10"
 
 ```bash
 python3 scripts/check_list.py mi_lista.json
-```
-
-```bash
-python3 scripts/export_xlsx.py mi_lista.json alternativa.json -o necrons_2000.xlsx --lang es
 ```
 
 ### Formato de lista (JSON)
@@ -179,7 +168,7 @@ Upgrade en unidades no personaje, Epic Heroes únicos y sin mejoras. Detalle en
 ```
 .claude/skills/wh40k-list-builder/
 ├── SKILL.md                      # flujo de trabajo que sigue Claude
-├── scripts/                      # bsdata, metrics, optimize, check_list, export_xlsx
+├── scripts/                      # bsdata, metrics, optimize, check_list
 ├── references/
 │   ├── army-rules-11e.md         # reglas de construcción de ejército
 │   └── list-strategy.md          # roles, pesos por estilo, enfrentamientos, sinergias
