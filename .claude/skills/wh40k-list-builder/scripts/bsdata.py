@@ -206,6 +206,17 @@ class World:
                "squats": "votann", "csm": "chaos space marines", "nids": "tyranids"}
 
     def find_faction(self, query):
+        # "Space Marines (Ultramarines)" -> try the most specific part first
+        inner = re.findall(r"\(([^)]+)\)", query)
+        outer = re.sub(r"\([^)]*\)", "", query).strip()
+        for q in inner + [outer]:
+            try:
+                return self._find_faction(q)
+            except SystemExit:
+                continue
+        return self._find_faction(query)
+
+    def _find_faction(self, query):
         q = query.lower().strip()
         q = self.ALIASES.get(q, q)
         names = self.playable()
@@ -223,7 +234,7 @@ class World:
             return self.by_name[cands[0]]
         # token match
         toks = set(re.findall(r"\w+", q))
-        scored = sorted(names, key=lambda n: -len(toks & set(re.findall(r"\w+", n.lower()))))
+        scored = sorted(names, key=lambda n: (-len(toks & set(re.findall(r"\w+", n.lower()))), len(n)))
         if scored and toks & set(re.findall(r"\w+", scored[0].lower())):
             return self.by_name[scored[0]]
         raise SystemExit(f"Faction '{query}' not found. Available: " + "; ".join(names))
