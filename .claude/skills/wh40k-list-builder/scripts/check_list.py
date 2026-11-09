@@ -18,8 +18,10 @@ Input: a JSON file (or '-' for stdin) like
 }
 
 "attached_to" points at another entry's "label" (or its unit name when unique).
-"wargear" is free text printed in the list; it is not priced (wargear is free in
-almost every 11e datasheet - the script warns if the data says otherwise).
+"wargear" is free text printed in the list. Options that cost points in the data
+(e.g. "Rupture cannon" +20) are charged when their name appears in it; prefix a
+count for several ("2x Macro plasma incinerator"). Paid options available on a unit
+but not named are listed as a note so you can decide.
 
 Output: the formatted list plus a list of problems (errors and warnings).
 Exit code 1 if there are errors.
@@ -69,6 +71,24 @@ def price(unit, models):
             return t["pts"], None
     sizes = ", ".join(t["models"] for t in unit["points"])
     return None, f"{unit['name']}: {models} models is not a legal size (legal: {sizes})"
+
+
+def wargear_cost(unit, text):
+    """Charge paid options whose names appear in the wargear text."""
+    total, names = 0, set()
+    low = text.lower()
+    for o in unit.get("options", []):
+        if not o.get("pts") or "name" not in o or o["name"] in names:
+            continue
+        nm = o["name"].lower()
+        idx = low.find(nm)
+        if idx < 0:
+            continue
+        m = re.search(r"(\d+)\s*x\s*$", low[:idx])
+        n = int(m.group(1)) if m else 1
+        total += o["pts"] * n
+        names.add(o["name"])
+    return total, names
 
 
 def surcharge(unit, copy_index):
@@ -150,10 +170,15 @@ def check(spec):
                 enh_name = e["name"]
                 if e["units"] and u["name"] not in e["units"]:
                     errors.append(f"{u['name']} cannot take enhancement {e['name']}")
-        cost = p + extra + enh_pts
+        gear_pts, gear_names = wargear_cost(u, entry.get("wargear") or "")
+        paid = sorted({o["name"] for o in u.get("options", []) if o.get("pts") and o["name"] not in gear_names})
+        if paid:
+            warnings.append(f"{u['name']}: paid options not in its wargear text: " + ", ".join(
+                f"{n} (+{next(o['pts'] for o in u['options'] if o.get('name') == n)})" for n in paid))
+        cost = p + extra + enh_pts + gear_pts
         total += cost
         label = entry.get("label") or u["name"]
-        row = {"i": i, "unit": u, "models": models, "base": p, "extra": extra, "enh": enh_name, "enh_pts": enh_pts,
+        row = {"i": i, "unit": u, "models": models, "base": p, "extra": extra, "enh": enh_name, "enh_pts": enh_pts, "gear_pts": gear_pts,
                "cost": cost, "label": label, "entry": entry}
         rows.append(row)
         labels.setdefault(label.lower(), []).append(row)
@@ -248,6 +273,8 @@ def render(spec, res):
             extras.append(f"Enhancement: {r['enh']} (+{r['enh_pts']})")
         if r["extra"]:
             extras.append(f"repeat-copy surcharge +{r['extra']}")
+        if r.get("gear_pts"):
+            extras.append(f"paid wargear +{r['gear_pts']}")
         if r["entry"].get("wargear"):
             extras.append(r["entry"]["wargear"])
         if extras:
