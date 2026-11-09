@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: necrons-2000-competitive
+expected_outcome: |
+  A legal Necrons Strike Force list of at most 2000 points built from current BSData points,
+  with detachment(s) within 3 Detachment Points, unit copy limits respected, leaders attached,
+  a justification by role backed by numbers, and at least one alternative list compared to it.
+  The answer is in Spanish with unit names in English.
