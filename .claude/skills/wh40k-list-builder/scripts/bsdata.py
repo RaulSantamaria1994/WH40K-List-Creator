@@ -34,7 +34,7 @@ from pathlib import Path
 
 REPO_URL = "https://github.com/BSData/wh40k-11e.git"
 ZIP_URL = "https://codeload.github.com/BSData/wh40k-11e/zip/refs/heads/main"
-COMPILER_VERSION = 10
+COMPILER_VERSION = 11
 
 PTS = "51b2-306e-1021-d207"
 DETACHMENT_POINTS = "82ae-1066-5107-6ae0"
@@ -560,7 +560,8 @@ def collect(unit, res):
         for r in rule_names(e, res):
             rules.add(r)
         if etype == "upgrade" and cost(e) and depth > 0:
-            options.append({"name": name, "pts": cost(e), "on": carrier})
+            options.append({"name": name, "pts": cost(e), "on": carrier,
+                            "enhancement_slot": bool(cost(e, ENHANCEMENT_SLOTS))})
         kids = list(children(e, res))
         is_group = "type" not in e or e.get("type") == "selectionEntryGroup"
         if is_group and kids and depth > 0:

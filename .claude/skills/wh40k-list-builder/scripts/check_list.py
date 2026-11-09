@@ -162,15 +162,32 @@ def check(spec):
         enh_name = entry.get("enhancement")
         if enh_name:
             hit = allowed_enh.get(enh_name.lower()) or next(((e, dn) for k, (e, dn) in allowed_enh.items() if enh_name.lower() in k), None)
+            unit_opt = next((o for o in u.get("options", []) if o.get("enhancement_slot") and o.get("name", "").lower() == enh_name.lower()), None)
+            if not hit and unit_opt:
+                # datasheet upgrade that uses an Enhancement slot (e.g. Norn upgrades)
+                hit = ({"name": unit_opt["name"], "pts": unit_opt["pts"], "units": [], "max_in_army": 1}, "datasheet")
             if not hit:
                 errors.append(f"Enhancement '{enh_name}' is not available in the chosen detachments")
             else:
                 e, dn = hit
+                allowed_enh.setdefault(e["name"].lower(), hit)
                 enh_pts = e["pts"]
                 enh_name = e["name"]
                 if e["units"] and u["name"] not in e["units"]:
                     errors.append(f"{u['name']} cannot take enhancement {e['name']}")
+                is_upgrade = (e.get("max_in_army") or 1) > 1 or "upgrade" in (e.get("text") or "").lower()
+                if dn != "datasheet" and not is_upgrade and "Character" not in u["keywords"]:
+                    warnings.append(f"{e['name']} on {u['name']}: only Upgrade enhancements go on non-CHARACTER units; "
+                                    "the data allows it but check the detachment text")
         gear_pts, gear_names = wargear_cost(u, entry.get("wargear") or "")
+        gear_slots = [o["name"] for o in u.get("options", []) if o.get("enhancement_slot") and o["name"] in gear_names]
+        if gear_slots and enh_name:
+            errors.append(f"{u['name']}: {', '.join(gear_slots)} uses an Enhancement slot, so the unit cannot also take {enh_name}")
+        elif gear_slots:
+            enh_name = gear_slots[0]
+            gear_pts -= next(o["pts"] for o in u["options"] if o.get("name") == enh_name)
+            enh_pts = next(o["pts"] for o in u["options"] if o.get("name") == enh_name)
+            allowed_enh.setdefault(enh_name.lower(), ({"name": enh_name, "pts": enh_pts, "units": [], "max_in_army": 1}, "datasheet"))
         paid = sorted({o["name"] for o in u.get("options", []) if o.get("pts") and o["name"] not in gear_names})
         if paid:
             warnings.append(f"{u['name']}: paid options not in its wargear text: " + ", ".join(

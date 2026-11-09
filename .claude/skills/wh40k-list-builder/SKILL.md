@@ -182,6 +182,8 @@ English as in the data/app so the user can type them into their list builder.
 - Each role (anti-tank, anti-elite, anti-horde, objectives, scoring, anchor): which units
   fill it and the key number that justifies them (e.g. "~9 wounds vs vehicles per turn").
 - Key synergies: leaders, detachment rule, enhancements.
+- Force Disposition: which one you pick among those your detachments grant, and why it
+  suits this army (it decides the mission you play against the opponent's disposition).
 - What the player asked for and how the list reflects it (style, collection, opponent).
 
 ## How to play it (short)
