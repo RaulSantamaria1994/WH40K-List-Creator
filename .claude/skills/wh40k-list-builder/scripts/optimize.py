@@ -19,7 +19,7 @@ Usage:
       [--must "Overlord,Lychguard:10,Necron Warriors:20x2"]
       [--only "A,B,C"] [--exclude "A,B"] [--owned "Necron Warriors=40,Immortals=10" | --owned owned.json]
       [--loadout "Unit=3xWeapon,..."] [--include-characters] [--allies] [--legends]
-      [--top 3] [--seed 1] [--iterations 400] [--json]
+      [--copy-decay 0.85] [--top 3] [--seed 1] [--iterations 400] [--json]
 """
 import argparse
 import json
@@ -85,6 +85,7 @@ class Problem:
         self.weights.update({"horde": 1, "elite": 1, "tank": 1, "durability": 1, "oc": 0.5})
         self.weights.update(parse_kv(a.weights))
         self.owned = parse_owned(a.owned)
+        self.copy_decay = a.copy_decay
         self.limit = UNIT_LIMIT.get(a.battle_size, 3)
         loadouts = {}
         for spec in a.loadout:
@@ -160,12 +161,17 @@ class Problem:
     def value(self, items):
         tot = {c: 0.0 for c in CATS}
         pts = 0
+        seen = Counter()
         for o in items:
+            # each extra copy of the same datasheet counts a bit less: real lists
+            # need varied tools, and spamming one profile is easy for an opponent to answer
+            seen[o["name"]] += 1
+            f = self.copy_decay ** (seen[o["name"]] - 1)
             for c in CATS:
                 if c == "move":
                     tot[c] += o["scores"]["move"] * o["pts"]
                 else:
-                    tot[c] += o["scores"][c]
+                    tot[c] += o["scores"][c] * f
             pts += o["pts"]
         v = 0.0
         for c in CATS:
@@ -263,6 +269,8 @@ def main():
     ap.add_argument("--include-characters", action="store_true")
     ap.add_argument("--allies", action="store_true")
     ap.add_argument("--legends", action="store_true")
+    ap.add_argument("--copy-decay", type=float, default=0.85,
+                    help="value multiplier for each extra copy of the same unit (1 = no diversity bonus)")
     ap.add_argument("--top", type=int, default=3)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--iterations", type=int, default=300)

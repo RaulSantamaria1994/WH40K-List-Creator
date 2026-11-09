@@ -1,6 +1,6 @@
 ---
 name: wh40k-list-builder
-description: Build the strongest legal Warhammer 40,000 (11th edition) army list for a player's needs using live BSData unit data (points, datasheets, weapons, detachments, enhancements) plus mathhammer analysis and an optimiser. Use this whenever someone wants to create, optimise, improve, compare or check a 40k army list — e.g. "hazme una lista de necrones a 2000", "best Space Marines list with what I own", "what should I add to my Tyranids for 1000 pts", "list to beat Imperial Knights", "is this list legal / how many points" — even if they don't say "list" and only mention a faction, points, detachments, units or their collection. Also for questions about unit value per point or which detachment fits a playstyle.
+description: Build the strongest legal Warhammer 40,000 (11th edition) army list for a player's needs using live BSData unit data (points, datasheets, weapons, detachments, enhancements) plus mathhammer analysis and an optimiser, returning the lists on screen and as an Excel workbook. Use this whenever someone wants to create, optimise, improve, compare or check a 40k army list — e.g. "hazme una lista de necrones a 2000", "best Space Marines list with what I own", "what should I add to my Tyranids for 1000 pts", "list to beat Imperial Knights", "is this list legal / how many points" — even if they don't say "list" and only mention a faction, points, detachments, units or their collection. Also for questions about unit value per point or which detachment fits a playstyle.
 ---
 
 # Warhammer 40k 11th edition list builder
@@ -89,6 +89,9 @@ python3 scripts/optimize.py "<faction>" --points 2000 \
   [--owned "Unit=models,..."] [--only "A,B"] [--exclude "C"] [--loadout "..."] --top 3
 ```
 
+- Each extra copy of the same datasheet is valued a bit less (`--copy-decay`, default
+  0.85) so the search favours varied tools; use `--copy-decay 1` if the player wants spam.
+
 - `--must` entries are `Name[:size][xCopies]` and always included.
 - Weights express the play style and the matchup — see `references/list-strategy.md`
   §§ 2–3 for presets. Explain the weights you chose in one line.
@@ -113,15 +116,19 @@ python3 scripts/check_list.py my_list.json
 Format (see the script docstring for all fields):
 
 ```json
-{"faction": "necrons", "battle_size": "Strike Force", "detachments": ["Awakened Dynasty"],
- "force_disposition": "Take and Hold",
+{"title": "Main - Awakened Dynasty", "faction": "necrons", "battle_size": "Strike Force",
+ "detachments": ["Awakened Dynasty"], "force_disposition": "Take and Hold",
  "units": [
    {"name": "Overlord", "enhancement": "Veil of Darkness", "attached_to": "Lychguard", "warlord": true, "wargear": "Voidscythe"},
    {"name": "Lychguard", "models": 10},
-   {"name": "Necron Warriors", "models": 20}]}
+   {"name": "Tyrannofex", "wargear": "Rupture cannon"}]}
 ```
 
-It prices everything (sizes, repeat-copy surcharges, enhancements), checks points, DP,
+Write the chosen weapons in `wargear`: options that cost points in the data (shown as
+`O +20pts Rupture cannon` by `bsdata.py unit`) are charged when named there, and the
+checker warns about paid options you did not mention.
+
+It prices everything (sizes, repeat-copy surcharges, paid wargear, enhancements), checks points, DP,
 unique tags, unit limits (x2 Battleline, Epic Heroes 1), enhancement limit and
 eligibility, Leader/Support attachments, and prints the list in a clean format. Fix every
 error. Resolve warnings or explain them to the user. Never present a list that fails
@@ -140,6 +147,23 @@ python3 scripts/metrics.py --compare main.json alt_a.json alt_b.json
 It prints, per list, units, models, anti-horde / anti-elite / anti-tank output,
 durability against heavy and anti-tank fire, and total OC (add `"loadout"` to a unit
 entry in the JSON for multi-weapon models). Use those numbers in the comparison table.
+
+## Step 8 — Export to Excel
+
+Always deliver the lists twice: on screen (the answer below) **and** as an Excel workbook
+the player can keep, print or share. Put the main list first:
+
+```bash
+python3 scripts/export_xlsx.py main.json alt_1.json alt_2.json -o <output dir>/<faction>_<points>.xlsx --lang es
+```
+
+`--lang es|en` follows the user's language. The workbook has a comparison sheet (points,
+DP, units, enhancements, anti-horde/elite/tank, durability, OC, legal) and one sheet per
+list with the unit table, points breakdown with a SUM formula, attachments, wargear and
+validation result. Save it where the user can open it (their working directory or the
+outputs folder you were given) and give the path at the end of the answer. If the export
+fails (e.g. `openpyxl` missing: `pip install openpyxl`), say so and still give the lists
+on screen.
 
 ## Output format
 
@@ -171,6 +195,9 @@ Deployment, first turns, what to protect, what to trade.
 | Durability / OC | | | |
 | Best against / weakest against | | | |
 Then each alternative's list block (or the diff vs. the main list if it is small).
+
+## Excel
+Path to the .xlsx file (comparison sheet + one sheet per list).
 
 ## Notes
 - Assumptions (defaults you chose, Onslaught limits if relevant, etc.).
