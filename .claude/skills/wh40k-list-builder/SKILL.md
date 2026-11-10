@@ -75,7 +75,9 @@ Leader/Support characters and Upgrade enhancements, and those rules shape the li
 Read the detachment rules and enhancements. Pick the combination (within the DP budget,
 no shared unique tags) whose rules buff the units that perform best for this player.
 Usually compare 2–3 candidate setups instead of committing to the first one: a 3 DP
-army-wide detachment vs. a 2 DP + 1 DP pair focused on the units you want.
+army-wide detachment vs. a 2 DP + 1 DP pair focused on the units you want. Translate each
+candidate's main rule into `--mods` (`references/list-strategy.md` § 6) and run steps
+4–5 with it, so the comparison between detachments is measured, not guessed.
 
 ## Step 4 — Measure the units
 
@@ -165,8 +167,11 @@ Run metrics on the validated list so the explanation can quote numbers (add `"lo
 to a unit entry in the JSON for multi-weapon models):
 
 ```bash
-python3 scripts/metrics.py --compare main.json
+python3 scripts/metrics.py --compare main.json [--mods "lethal@vehicle,monster"]
 ```
+
+Put the detachment rule and leader effects you modelled in the list JSON (`"mods"` at
+list or unit level) or pass `--mods`, and say in the answer which numbers include them.
 
 It prints units, models, anti-horde / anti-elite / anti-tank output, durability against
 heavy and anti-tank fire, and total OC. Use those numbers in "Why this list".

@@ -12,15 +12,23 @@ These are *estimates* for comparing units, not a battle simulator. Assumptions:
 attacker is in half range (Rapid Fire / Melta count half their bonus), guns under
 24" are discounted (x0.95 at 18", x0.85 at 12", x0.75 below) for firing less often,
 melee is weighted 0.7 and further discounted for slow units in the aggregate scores, stationary
-bonuses (Heavy) and re-rolls from abilities/detachments are ignored, Blast uses
+bonuses (Heavy) and re-rolls from abilities/detachments are ignored unless given
+with --mods, Blast uses
 the reference target's model count, and by default each model uses its best
 ranged and its best melee weapon (use --loadout for multi-weapon platforms).
 
 Usage:
   metrics.py <faction> [--units "A,B"] [--size N] [--per100] [--sort KEY] [--json]
              [--loadout "Unit=3xWeapon,1xOther"] [--allies] [--legends]
-  metrics.py --compare list1.json list2.json ...   # totals per army list (check_list.py format;
-                                                  # optional per-unit "loadout": "3xGun,1xFist")
+  metrics.py --compare list1.json list2.json ... [--mods SPEC]
+                                                  # totals per army list (check_list.py format;
+                                                  # optional per-unit "loadout": "3xGun,1xFist",
+                                                  # list-level and per-unit "mods")
+  --mods "[KEYWORD:] token; token"  rule modifiers (detachment rules, auras, leaders):
+      hit+N wound+N ap+N dmg+N attacks+N lethal sustainedX dev critN
+      reroll_hit1 reroll_hit reroll_wound1 reroll_wound oc+N fnpN dr1 invulnN
+      token@filters limits it to ranged/melee and/or target keywords (infantry, vehicle, monster)
+      e.g. --mods "lethal@vehicle,monster"  --mods "MONSTER: oc+2"  --mods "TYRANIDS: sustained1@infantry"
   sort keys: horde, elite, tank, durability, oc, value
 """
 import argparse
@@ -132,17 +140,113 @@ def damage_reduction(unit):
 
 
 # ----------------------------------------------------------------------------
+# Rule modifiers (detachment rules, auras, leaders...)
+# ----------------------------------------------------------------------------
+# A modifier spec is "[KEYWORD:] token; token; ..." where the optional KEYWORD
+# limits it to units with that keyword (e.g. "MONSTER: hit+1; oc+2"). Tokens:
+#   hit+N wound+N ap+N dmg+N attacks+N   (hit/wound are capped at +/-1 in total)
+#   lethal  sustainedX  dev  critN (critical hits on N+)
+#   reroll_hit1 reroll_hit reroll_wound1 reroll_wound   (re-roll 1s / all fails)
+#   oc+N  fnpN  dr1 (-1 Damage taken)  invulnN           (unit side)
+# A token can end in "@filters": ranged, melee and/or target keywords
+# (infantry, vehicle, monster), e.g. "lethal@vehicle,monster", "ap+1@melee".
+
+MOD_RE = re.compile(r"^(hit|wound|ap|dmg|attacks|oc)\s*([+-]\s*\d+)$|^(lethal|dev)$|^sustained\s*(\d+)$|"
+                    r"^crit\s*(\d)\+?$|^(reroll_hit|reroll_wound)(1?)$|^(fnp|invuln)\s*(\d)\+?$|^dr\s*(\d)$")
+WEAPON_KINDS = {"ranged", "melee"}
+
+
+def parse_mods(spec):
+    """'MONSTER: hit+1; lethal@vehicle,monster' -> (unit keyword or None, [mod dicts])."""
+    spec = (spec or "").strip()
+    unit_kw = None
+    m = re.match(r"^([A-Za-z][\w \-]*?)\s*:\s*(.*)$", spec)
+    if m:
+        unit_kw, spec = m.group(1).strip().lower(), m.group(2)
+    mods = []
+    for tok in spec.split(";"):
+        tok = tok.strip().lower()
+        if not tok:
+            continue
+        body, _, filt = tok.partition("@")
+        body = body.replace(" ", "")
+        fl = {f.strip() for f in filt.split(",") if f.strip()}
+        g = MOD_RE.match(body)
+        if not g:
+            raise SystemExit(f"Unknown modifier '{tok}'. See metrics.py docstring for the syntax.")
+        if g.group(1):
+            key, val = g.group(1), int(g.group(2).replace(" ", ""))
+        elif g.group(3):
+            key, val = g.group(3), True
+        elif g.group(4):
+            key, val = "sustained", int(g.group(4))
+        elif g.group(5):
+            key, val = "crit", int(g.group(5))
+        elif g.group(6):
+            key, val = g.group(6), "1" if g.group(7) else "all"
+        elif g.group(8):
+            key, val = g.group(8), int(g.group(9))
+        else:
+            key, val = "dr", int(g.group(10))
+        mods.append({"key": key, "val": val, "kinds": fl & WEAPON_KINDS,
+                     "targets": {f.upper() for f in fl - WEAPON_KINDS}})
+    return unit_kw, mods
+
+
+def mods_for_unit(unit, specs):
+    """Mods (list) from several specs that apply to this unit (keyword prefix match)."""
+    kws = {k.lower() for k in unit["keywords"] + unit.get("faction_keywords", [])} | {unit["name"].lower()}
+    out = []
+    for s in specs or []:
+        kw, mods = parse_mods(s)
+        if kw is None or kw in kws or kw.rstrip("s") in kws:
+            out += mods
+    return out
+
+
+def _weapon_mods(mods, w, tgt):
+    eff = {}
+    for m in mods or []:
+        if m["kinds"] and w.get("type") not in m["kinds"]:
+            continue
+        if m["targets"] and not (m["targets"] & tgt["kw"]):
+            continue
+        k, v = m["key"], m["val"]
+        if k in ("hit", "wound", "ap", "dmg", "attacks"):
+            eff[k] = eff.get(k, 0) + v
+        elif k in ("sustained", ):
+            eff[k] = max(eff.get(k, 0), v)
+        elif k == "crit":
+            eff[k] = min(eff.get(k, 6), v)
+        elif k in ("reroll_hit", "reroll_wound"):
+            eff[k] = "all" if "all" in (v, eff.get(k)) else v
+        else:
+            eff[k] = v
+    return eff
+
+
+def _reroll(p, p_crit, mode):
+    """Re-roll 1s (mode '1') or every fail (mode 'all') of a roll with success p."""
+    if mode == "all":
+        return p + (1 - p) * p, p_crit + (1 - p) * p_crit
+    if mode == "1":
+        return p + p / 6, p_crit + p_crit / 6
+    return p, p_crit
+
+
+# ----------------------------------------------------------------------------
 # Weapon vs target
 # ----------------------------------------------------------------------------
 
-def weapon_damage(w, tgt):
+def weapon_damage(w, tgt, mods=None):
     """Expected wounds dealt by one model's weapon (all its attacks) vs a target."""
     kws = w.get("Keywords", "") or ""
     kwl = kws.lower()
-    A = dice_avg(w.get("A"))
+    eff = _weapon_mods(mods, w, tgt)
+    A = dice_avg(w.get("A")) + eff.get("attacks", 0)
     S = dice_avg(w.get("S"))
-    AP = abs(dice_avg(w.get("AP")))
-    D = dice_avg(w.get("D"))
+    AP = abs(dice_avg(w.get("AP"))) + eff.get("ap", 0)
+    D = dice_avg(w.get("D")) + eff.get("dmg", 0)
     if A <= 0 or S <= 0:
         return 0.0
     if "blast" in kwl:
@@ -155,23 +259,33 @@ def weapon_damage(w, tgt):
         D += dice_avg(melta) * 0.5
     skill = w.get("BS") if w.get("type") == "ranged" else w.get("WS")
     torrent = "torrent" in kwl
-    p_hit = 1.0 if torrent else p_success(roll_target(skill))
-    p_crit_hit = 0.0 if torrent else 1 / 6
+    hit_mod = max(-1, min(1, eff.get("hit", 0)))
+    crit_h = eff.get("crit", 6)
+    if torrent:
+        p_hit, p_crit_hit = 1.0, 0.0
+    else:
+        base = roll_target(skill)
+        p_hit = p_success(base - hit_mod) if base else 1.0
+        p_crit_hit = p_success(crit_h)
+        p_hit = max(p_hit, p_crit_hit)  # a critical hit always hits
+        p_hit, p_crit_hit = _reroll(p_hit, p_crit_hit, eff.get("reroll_hit"))
     sus = kw_value(kws, "Sustained Hits")
-    sus = dice_avg(sus) if sus else 0
-    lethal = "lethal hits" in kwl
-    dev = "devastating wounds" in kwl
+    sus = max(dice_avg(sus) if sus else 0, eff.get("sustained", 0))
+    lethal = "lethal hits" in kwl or eff.get("lethal", False)
+    dev = "devastating wounds" in kwl or eff.get("dev", False)
     twin = "twin-linked" in kwl
     crit_w = 6
     for m in re.finditer(r"anti-([a-z ]+?)\s*(\d)\+", kwl):
         if m.group(1).strip().upper() in tgt["kw"]:
             crit_w = min(crit_w, int(m.group(2)))
-    wt = wound_target(S, tgt["T"])
+    wound_mod = max(-1, min(1, eff.get("wound", 0)))
+    wt = wound_target(S, tgt["T"]) - wound_mod
     p_wound = p_success(min(wt, crit_w))
     p_crit_wound = p_success(crit_w)
-    if twin:
-        p_wound = p_wound + (1 - p_wound) * p_wound
-        p_crit_wound = p_crit_wound + (1 - p_wound) * p_crit_wound
+    rw = "all" if twin else eff.get("reroll_wound")
+    if eff.get("reroll_wound") == "all":
+        rw = "all"
+    p_wound, p_crit_wound = _reroll(p_wound, p_crit_wound, rw)
     save_needed = tgt["Sv"] + AP
     if tgt["Inv"]:
         save_needed = min(save_needed, tgt["Inv"])
@@ -292,7 +406,8 @@ def pick_size(unit, size=None):
     return t["best_size"], t["pts"]
 
 
-def unit_metrics(unit, size=None, loadout=None, prefer=None):
+def unit_metrics(unit, size=None, loadout=None, prefer=None, mods=None):
+    """mods: list of parsed modifiers (see parse_mods / mods_for_unit) already filtered for this unit."""
     size, pts = pick_size(unit, size)
     prof = unit["profiles"][0]["stats"] if unit["profiles"] else {}
     T = dice_avg(prof.get("T")) or 4
@@ -333,13 +448,25 @@ def unit_metrics(unit, size=None, loadout=None, prefer=None):
            "models": counts, "notes": notes, "ranged": {}, "melee": {},
            "range": max([dice_avg(re.sub(r"[^\d]", "", w.get("Range", "") or "0") or 0) for w, _ in firing if w["type"] == "ranged"] or [0])}
     for tn, tgt in TARGETS.items():
-        out["ranged"][tn] = round(sum(weapon_damage(w, tgt) * n * range_factor(w) for w, n in firing if w["type"] == "ranged"), 2)
-        out["melee"][tn] = round(sum(weapon_damage(w, tgt) * n for w, n in firing if w["type"] == "melee"), 2)
+        out["ranged"][tn] = round(sum(weapon_damage(w, tgt, mods) * n * range_factor(w) for w, n in firing if w["type"] == "ranged"), 2)
+        out["melee"][tn] = round(sum(weapon_damage(w, tgt, mods) * n for w, n in firing if w["type"] == "melee"), 2)
 
     # durability
     total_w = W * size  # approximation: every model uses the first profile
     fnp = parse_fnp(unit)
     dr = damage_reduction(unit)
+    unit_side = {}
+    for m in mods or []:
+        if m["key"] in ("fnp", "invuln"):
+            unit_side[m["key"]] = min(unit_side.get(m["key"], 7), m["val"])
+        elif m["key"] in ("dr", "oc"):
+            unit_side[m["key"]] = unit_side.get(m["key"], 0) + m["val"]
+    if "fnp" in unit_side:
+        fnp = min(fnp or 7, unit_side["fnp"])
+    if "invuln" in unit_side:
+        Inv = min(Inv or 7, unit_side["invuln"])
+        out["Inv"] = Inv
+    dr = max(dr, unit_side.get("dr", 0))
     dur = {}
     for rn, (S, AP, D) in REF_ATTACKS.items():
         p_hit = 4 / 6
@@ -357,7 +484,9 @@ def unit_metrics(unit, size=None, loadout=None, prefer=None):
     out["durability"] = dur
     out["fnp"] = fnp
     out["damage_reduction"] = dr
-    out["oc_total"] = OC * size
+    out["oc_total"] = (OC + unit_side.get("oc", 0)) * size
+    if mods:
+        out["notes"].append("with rule modifiers")
     return out
 
 
@@ -381,7 +510,13 @@ def per100(v, pts):
     return v * 100 / pts if pts else 0.0
 
 
-def list_totals(spec, melee_weight=0.7):
+def _as_list(x):
+    return [] if not x else ([x] if isinstance(x, str) else list(x))
+
+
+def list_totals(spec, melee_weight=0.7, extra_mods=None):
+    """List-level "mods" (strings, e.g. "MONSTER: hit+1") apply to matching units;
+    a unit entry's own "mods" apply to that unit only."""
     d = bsdata.load(spec["faction"])
     tot = {"horde": 0.0, "elite": 0.0, "tank": 0.0, "durability_heavy": 0.0, "durability_at": 0.0,
            "oc": 0.0, "units": 0, "models": 0, "pts": 0}
@@ -392,7 +527,8 @@ def list_totals(spec, melee_weight=0.7):
         if not u:
             continue
         lo = parse_loadout(e["loadout"]) if e.get("loadout") else None
-        m = unit_metrics(u, e.get("models"), lo)
+        specs = list(extra_mods or []) + _as_list(spec.get("mods")) + _as_list(e.get("mods"))
+        m = unit_metrics(u, e.get("models"), lo, mods=mods_for_unit(u, specs))
         sc = derived(m, melee_weight)
         tot["horde"] += sc["horde"]
         tot["elite"] += sc["elite"]
@@ -407,12 +543,12 @@ def list_totals(spec, melee_weight=0.7):
     return tot
 
 
-def compare(files, melee_weight):
+def compare(files, melee_weight, extra_mods=None):
     print("Expected damage per turn (ranged + discounted melee) vs reference targets; durability = attacks needed to wipe the whole army")
     print("list | pts (no enh/surcharge) | units | models | anti-horde | anti-elite | anti-tank | dur vs heavy | dur vs AT | OC")
     for f in files:
         spec = json.load(open(f, encoding="utf-8"))
-        t = list_totals(spec, melee_weight)
+        t = list_totals(spec, melee_weight, extra_mods)
         name = spec.get("title") or Path(f).stem
         print(f"{name} | {t['pts']} | {t['units']} | {t['models']} | {t['horde']:.1f} | {t['elite']:.1f} | {t['tank']:.1f} | "
               f"{t['durability_heavy']:.0f} | {t['durability_at']:.0f} | {t['oc']:.0f}")
@@ -420,9 +556,12 @@ def compare(files, melee_weight):
 
 def main():
     if "--compare" in sys.argv:
-        i = sys.argv.index("--compare")
-        mw = 0.7
-        compare([x for x in sys.argv[i + 1:] if not x.startswith("--")], mw)
+        cp = argparse.ArgumentParser()
+        cp.add_argument("--compare", nargs="+", required=True)
+        cp.add_argument("--mods", action="append", default=[])
+        cp.add_argument("--melee-weight", type=float, default=0.7)
+        ca = cp.parse_args()
+        compare(ca.compare, ca.melee_weight, ca.mods)
         return
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("faction")
@@ -434,6 +573,8 @@ def main():
     ap.add_argument("--allies", action="store_true")
     ap.add_argument("--legends", action="store_true")
     ap.add_argument("--melee-weight", type=float, default=0.7, help="discount for melee damage being harder to deliver")
+    ap.add_argument("--mods", action="append", default=[],
+                    help='rule modifiers, e.g. "MONSTER: hit+1; oc+2" or "lethal@vehicle,monster" (repeatable)')
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
@@ -458,7 +599,7 @@ def main():
         size = int(size)
     rows = []
     for u in units:
-        m = unit_metrics(u, size, loadouts.get(u["name"].lower()))
+        m = unit_metrics(u, size, loadouts.get(u["name"].lower()), mods=mods_for_unit(u, a.mods))
         m["scores"] = derived(m, a.melee_weight)
         m["scores_per100"] = {k: round(per100(v, m["pts"]), 2) for k, v in m["scores"].items() if k != "move"}
         sp = m["scores_per100"]

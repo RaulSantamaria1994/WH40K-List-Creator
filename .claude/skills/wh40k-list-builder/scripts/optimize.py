@@ -18,7 +18,7 @@ Usage:
       [--weights "horde=1,elite=1,tank=1,durability=1,oc=0.5,move=0"]
       [--must "Overlord,Lychguard:10,Necron Warriors:20x2"]
       [--only "A,B,C"] [--exclude "A,B"] [--owned "Necron Warriors=40,Immortals=10" | --owned owned.json | --owned saved]
-      [--loadout "Unit=3xWeapon,..."] [--include-characters] [--allies] [--legends]
+      [--loadout "Unit=3xWeapon,..."] [--mods "MONSTER: hit+1; oc+2"] [--include-characters] [--allies] [--legends]
       [--copy-decay 0.85] [--top 3] [--seed 1] [--iterations 400] [--json]
 """
 import argparse
@@ -112,6 +112,7 @@ class Problem:
         self.weights.update({"horde": 1, "elite": 1, "tank": 1, "durability": 1, "oc": 0.5})
         self.weights.update(parse_kv(a.weights))
         self.owned = parse_owned(a.owned, a.faction)
+        self.mods = a.mods
         self.copy_decay = a.copy_decay
         self.limit = UNIT_LIMIT.get(a.battle_size, 3)
         loadouts = {}
@@ -158,7 +159,7 @@ class Problem:
             self.ref[c] = max(med * self.budget, 1e-6)
 
     def _option(self, u, size, loadout, variant=None):
-        m = metrics.unit_metrics(u, size, loadout, variant)
+        m = metrics.unit_metrics(u, size, loadout, variant, mods=metrics.mods_for_unit(u, self.mods))
         sc = metrics.derived(m)
         gear = paid_wargear(u, loadout)
         return {"name": u["name"], "size": m["size"], "pts": m["pts"] + gear, "gear_pts": gear, "scores": sc, "unit": u, "variant": variant,
@@ -293,6 +294,8 @@ def main():
     ap.add_argument("--only", default="")
     ap.add_argument("--exclude", default="")
     ap.add_argument("--owned", default="")
+    ap.add_argument("--mods", action="append", default=[],
+                    help='rule modifiers as in metrics.py, e.g. "MONSTER: hit+1; oc+2" (repeatable)')
     ap.add_argument("--loadout", action="append", default=[])
     ap.add_argument("--include-characters", action="store_true")
     ap.add_argument("--allies", action="store_true")
