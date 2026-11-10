@@ -171,8 +171,10 @@ Upgrade en unidades no personaje, Epic Heroes únicos y sin mejoras. Detalle en
 
 - **Las estratagemas no están en BSData**; si la skill las menciona, lo advierte como conocimiento general.
 - El texto de las **Force Dispositions** tampoco está en los datos.
-- Las métricas son **medias para comparar unidades**: suponen media distancia, no cuentan
-  repeticiones, auras ni reglas de destacamento (Claude las añade al razonar y lo dice).
+- Las métricas son **medias para comparar unidades**: suponen media distancia. Las reglas de
+  destacamento, auras y líderes (Lethal Hits, +1 a impactar, repeticiones, +OC, FNP…) solo
+  cuentan si se pasan con `--mods` (p. ej. `--mods "lethal@vehicle,monster"` o
+  `--mods "MONSTER: oc+2"`); lo demás Claude lo añade al razonar y lo dice.
 - Los modelos con muchas armas (tanques, monstruos) se infravaloran salvo que se indique su `loadout`.
 - El límite de copias en Onslaught no está confirmado públicamente (se asume 3).
 - Errores de los propios datos de BSData pasan a la skill (p. ej. el destacamento Deathwatch
