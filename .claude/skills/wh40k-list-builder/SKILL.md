@@ -131,7 +131,8 @@ checker warns about paid options you did not mention.
 
 It prices everything (sizes, repeat-copy surcharges, paid wargear, enhancements), checks points, DP,
 unique tags, unit limits (x2 Battleline, Epic Heroes 1), enhancement limit and
-eligibility, Leader/Support attachments, and prints the list in a clean format. Fix every
+eligibility, Leader/Support attachments (only one Enhancement per unit when two
+characters lead it), and prints the list in a clean format. Fix every
 error. Resolve warnings or explain them to the user. Never present a list that fails
 this check.
 

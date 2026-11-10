@@ -259,6 +259,10 @@ def check(spec):
         for k, c in kinds.items():
             if c > 1:
                 errors.append(f"{lbl} has {c} {k} characters attached (max 1 Leader and 1 Support)")
+        enhanced = [r for _, r in lst if r["enh"]]
+        if len(enhanced) > 1:
+            errors.append(f"{lbl}: {' and '.join(r['label'] for r in enhanced)} both carry an Enhancement; "
+                          "only one CHARACTER in a unit can have an Enhancement")
 
     if total > pts_limit:
         errors.append(f"Points: {total} > {pts_limit}")
