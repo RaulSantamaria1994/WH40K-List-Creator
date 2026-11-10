@@ -26,7 +26,8 @@ Y la skill:
 4. Mide cada unidad: daño contra 5 objetivos de referencia, aguante, OC y valor por cada 100 puntos.
 5. Busca combinaciones con un optimizador que respeta tu colección, los límites de copias y tu estilo.
 6. Revisa sinergias (líderes, mejoras, reglas del destacamento, transportes, roles).
-7. Valida la lista: puntos, DP, etiquetas únicas, límites de copias, mejoras, personajes Leader/Support, equipo de pago.
+7. Valida la lista: puntos, DP, etiquetas únicas, límites de copias, mejoras, personajes Leader/Support, equipo de pago
+   y cuántos modelos pueden llevar cada arma (p. ej. 1 Chainfist por cada 5 Terminators).
 8. Muestra **una sola lista** en pantalla, con explicación por roles y cómo jugarla.
 
 ### Ejemplo de salida
@@ -152,7 +153,10 @@ la colección que le das, y las reutiliza cuando le pides cambiar "la lista que 
 
 - `attached_to`: la `label` (o el nombre) de la unidad guardaespaldas.
 - `wargear`: texto libre; las opciones con coste en los datos (p. ej. `Rupture cannon` +20) se cobran si aparecen aquí.
-- `loadout` (opcional, solo para métricas): `"3xGauss destructor,3xClose combat weapon"`.
+  Pon la cantidad delante (`"4x Khornate eviscerator, 2x Plasma pistol"`): se comprueba contra los
+  límites del datasheet para ese tamaño de unidad.
+- `composition` (opcional): modelos por tipo, `{"Berzerker w/ eviscerator and bolt pistol": 4}`.
+- `loadout` (opcional, para métricas): `"3xGauss destructor,3xClose combat weapon"`; también se valida.
 
 ## Reglas de 11ª edición que aplica
 
@@ -176,6 +180,9 @@ Upgrade en unidades no personaje, Epic Heroes únicos y sin mejoras. Detalle en
   cuentan si se pasan con `--mods` (p. ej. `--mods "lethal@vehicle,monster"` o
   `--mods "MONSTER: oc+2"`); lo demás Claude lo añade al razonar y lo dice.
 - Los modelos con muchas armas (tanques, monstruos) se infravaloran salvo que se indique su `loadout`.
+- Los límites de wargear salen de las restricciones de BSData: si una depende de otras elecciones
+  (otra arma, el destacamento) se avisa en vez de dar error, y unas pocas unidades cuya estructura
+  en los datos no encaja con su tamaño no se comprueban (también se avisa).
 - El límite de copias en Onslaught no está confirmado públicamente (se asume 3).
 - Errores de los propios datos de BSData pasan a la skill (p. ej. el destacamento Deathwatch
   Support lista mejoras de otros capítulos); los scripts avisan de lo que detectan.

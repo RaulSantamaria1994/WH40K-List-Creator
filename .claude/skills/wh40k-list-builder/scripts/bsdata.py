@@ -40,7 +40,7 @@ from pathlib import Path
 
 REPO_URL = "https://github.com/BSData/wh40k-11e.git"
 ZIP_URL = "https://codeload.github.com/BSData/wh40k-11e/zip/refs/heads/main"
-COMPILER_VERSION = 11
+COMPILER_VERSION = 14
 
 PTS = "51b2-306e-1021-d207"
 DETACHMENT_POINTS = "82ae-1066-5107-6ae0"
@@ -603,6 +603,155 @@ def model_count_range(unit, models):
     return max(1, mn), max(mn, mx, 1)
 
 
+def _limit_at(e, cn, n, unit_ids):
+    """Value of constraint `cn` on entry `e` for a unit of n models, applying the
+    modifiers that depend only on model count ('for every 10 models', 'if 10 models').
+    Modifiers that depend on anything else (other wargear, army choices) are ignored
+    and reported as uncertain; Crusade force-type conditions (instanceOf) never apply.
+    Returns (value, uncertain)."""
+    v = cn.get("value")
+    uncertain = False
+    for m in all_mods(e):
+        if m.get("field") != cn.get("id"):
+            continue
+        conds = m.get("conditions", []) or []
+        groups = m.get("conditionGroups", []) or []
+        if conds or groups:
+            if _mentions_instance(m):
+                continue
+            if any(c.get("childId") not in ("model",) and c.get("childId") not in unit_ids
+                   for c in _all_conds(m)):
+                uncertain = True  # depends on other wargear or army choices
+                continue
+            rs = [eval_cond(c, n, unit_ids) for c in conds] + [eval_group(g, n, unit_ids) for g in groups]
+            if any(r is None for r in rs):
+                uncertain = True
+                continue
+            if not all(rs):
+                continue
+        times = 1
+        for r in m.get("repeats", []) or []:
+            if r.get("childId") not in ("model",) and r.get("childId") not in unit_ids:
+                times = 0  # counts some other selection; at list level assume none
+                uncertain = uncertain or m.get("type") == "increment"
+                break
+            per = r.get("value") or 1
+            k = n / per
+            times *= int(-(-k // 1)) if r.get("roundUp") else int(k)
+            times *= r.get("repeats", 1) or 1
+        if not times:
+            continue
+        t, val = m.get("type"), m.get("value", 0)
+        if t == "set":
+            v = val
+        elif t == "increment":
+            v = (v or 0) + val * times
+        elif t == "decrement":
+            v = (v or 0) - val * times
+    return v, uncertain
+
+
+def _all_conds(g):
+    for c in g.get("conditions", []) or []:
+        yield c
+    for x in g.get("conditionGroups", []) or []:
+        yield from _all_conds(x)
+
+
+def _mentions_instance(m):
+    return any(c.get("type") in ("instanceOf", "notInstanceOf") for c in _all_conds(m))
+
+
+def _series(vals):
+    """Store a per-size list compactly: a single value when it never changes."""
+    return vals[0] if len(set(vals)) == 1 else vals
+
+
+def wargear_limits(unit, res, mn, mx):
+    """How many models of each type and how many of each weapon a unit may take,
+    for every legal model count. Values are a number or a list indexed by
+    (models - min); None means no limit in the data.
+
+    {"sizes": [mn, mx],
+     "models": {name: {"min": .., "max": .., "pools": [pool, ...]}},
+     "pools":  {name: {"max": .., "members": [model, ...]}},
+     "weapons": {name: {"carriers": {model: per_model}, "unit_max": ..}},
+     "uncertain": [names whose limits have modifiers that depend on other choices]}"""
+    uid = unit.get("id")
+    unit_scopes = {"unit", uid}
+    sizes = list(range(max(1, mn), max(mn, mx) + 1))
+    model_ids = set()
+    out = {"sizes": [sizes[0], sizes[-1]], "models": {}, "pools": {}, "weapons": {}}
+    uncertain = set()
+
+    def find_ids(e, depth=0):
+        if depth > 12:
+            return
+        if e.get("type") == "model" and e.get("id"):
+            model_ids.add(e["id"])
+        for k in children(e, res):
+            find_ids(k, depth + 1)
+    find_ids(unit)
+    ids = model_ids | {uid}
+
+    def lim(e, ctype, scopes):
+        cns = [c for c in e.get("constraints", []) or [] if c.get("field") == "selections"
+               and c.get("type") == ctype and c.get("scope") in scopes]
+        if not cns:
+            return None
+        vals = []
+        for n in sizes:
+            res_ = [_limit_at(e, c, n, ids) for c in cns]
+            if any(u for _, u in res_):
+                uncertain.add(e.get("name", ""))
+            vs = [v for v, _ in res_ if v is not None and v >= 0]  # -1 = unlimited
+            vals.append((min(vs) if ctype == "max" else max(vs)) if vs else None)
+        return _series(vals)
+
+    def walk(e, carrier, depth, pools, group_max):
+        if depth > 12:
+            return
+        name = e.get("name", "")
+        if name.lower() in SKIP_GROUPS:
+            return
+        etype = e.get("type")
+        is_group = "type" not in e or etype == "selectionEntryGroup"
+        if etype == "model" and depth > 0:
+            out["models"][name] = {"min": lim(e, "min", ("parent",) + tuple(unit_scopes)) or 0,
+                                   "max": lim(e, "max", ("parent",) + tuple(unit_scopes)),
+                                   "pools": list(pools)}
+            for p in pools:
+                out["pools"][p]["members"].append(name)
+            carrier = name
+        elif etype == "model":
+            carrier = name
+        elif not is_group and carrier and depth > 0:
+            per = lim(e, "max", ("parent",))
+            if per is None:
+                per = group_max
+            w = out["weapons"].setdefault(name, {"carriers": {}, "unit_max": None})
+            prev = w["carriers"].get(carrier)
+            w["carriers"][carrier] = per if prev is None else prev
+            um = lim(e, "max", tuple(unit_scopes))
+            if um is not None:
+                w["unit_max"] = um
+        if is_group and depth > 0:
+            kids = list(children(e, res))
+            gmax = lim(e, "max", ("parent",) + tuple(unit_scopes))
+            if any(k.get("type") == "model" for k in kids) and gmax is not None:
+                out["pools"].setdefault(name, {"max": gmax, "min": lim(e, "min", ("parent",)) or 0, "members": []})
+                pools = pools + [name]
+            elif not any(k.get("type") == "model" for k in kids):
+                group_max = gmax
+        for k in children(e, res):
+            walk(k, carrier, depth + 1, pools, group_max)
+
+    walk(unit, unit.get("name") if unit.get("type") == "model" else None, 0, [], None)
+    out["pools"] = {k: v for k, v in out["pools"].items() if v["members"]}
+    out["uncertain"] = sorted(uncertain)
+    return out
+
+
 def leader_targets(abilities):
     txt = abilities.get("Leader")
     if not txt:
@@ -658,6 +807,7 @@ def compile_unit(unit, link, res, source, faction_cat, ally_source):
         "leader_of": leader_targets(abilities),
         "transport": transport,
         "options": options[:40],
+        "limits": wargear_limits(u, res, mn, mx),
     }
 
 
@@ -996,11 +1146,69 @@ def cmd_unit(a):
                 print("  Leads: " + ", ".join(u["leader_of"]))
             if u["transport"]:
                 print("  Transport: " + u["transport"])
+            for line in limit_lines(u):
+                print("  L " + line)
             for o in u["options"]:
                 if "group" in o:
                     print(f"  O [{o['group']}] ({o.get('min')}-{o.get('max')}) on {o.get('on')}: " + " | ".join(o["choices"]))
                 else:
                     print(f"  O +{o['pts']}pts {o['name']} on {o.get('on')}")
+
+
+def limit_lines(u):
+    """Wargear caps that actually restrict the unit, at each purchasable size.
+    Required single models (sergeants, champions) and their gear are left out."""
+    import check_list
+    L = u["limits"]
+    sizes = sorted({int(x) for t in u["points"] for x in t["models"].split("-")})
+    per_size = [(n, check_list.wargear_caps(u, n)) for n in sizes]
+    per_size = [(n, c) for n, c in per_size if c]
+    if not per_size:
+        return []
+    mt = L["models"]
+
+    def singleton(t):
+        return t in mt and mt[t]["max"] == 1 and mt[t]["min"] == 1
+
+    rows = {}
+    for n, (mcaps, pools, wcaps, _) in per_size:
+        for t, v in mcaps.items():
+            if not singleton(t) and mt[t]["min"] == 0 and v < n - 1:
+                rows.setdefault(("model", t), {})[n] = v
+        for p, (v, _) in pools.items():
+            if v is not None and v < n - 1:
+                rows.setdefault(("pool", p), {})[n] = v
+        for w, v in wcaps.items():
+            car = L["weapons"][w]["carriers"]
+            if v is None or all(singleton(t) for t in car):
+                continue
+            if (n > 1 and v < n - 1) or (n == 1 and v > 1):
+                rows.setdefault(("weapon", w), {})[n] = v
+    # drop weapon lines that just repeat their only model type's limit, and model
+    # lines named like a weapon line (the weapon line is the tighter one)
+    for (kind, w), vals in list(rows.items()):
+        if kind != "weapon":
+            continue
+        typed = [t for t in L["weapons"][w]["carriers"] if t in mt]
+        mrow = rows.get(("model", typed[0])) if len(typed) == 1 else None
+        if mrow == vals:
+            del rows[("weapon", w)]
+        rows.pop(("model", w), None)
+    unc = per_size[0][1][3]
+    out = []
+    for (kind, name), vals in rows.items():
+        items = sorted(vals.items())
+        if len({v for _, v in items}) == 1:
+            txt = f"up to {items[0][1]}"
+        else:
+            keep = [items[0]] + [b for a, b in zip(items, items[1:]) if b[1] != a[1]]
+            txt = "up to " + " / ".join(f"{v} at {n}+ models" if i else f"{v} at {n} models" for i, (n, v) in enumerate(keep))
+        flag = " (conditional, check datasheet)" if name in unc else ""
+        if kind == "pool":
+            out.append(f"{txt} in total from: {', '.join(L['pools'][name]['members'])}{flag}")
+        else:
+            out.append(f"{name}: {txt}{flag}")
+    return out
 
 
 def units_str(units):

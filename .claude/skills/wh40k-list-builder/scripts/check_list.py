@@ -23,6 +23,15 @@ Input: a JSON file (or '-' for stdin) like
 count for several ("2x Macro plasma incinerator"). Paid options available on a unit
 but not named are listed as a note so you can decide.
 
+Counts in "wargear" (and in an optional metrics "loadout") are also checked against the
+datasheet's limits for that unit size: model types ("Berzerker w/ eviscerator and bolt
+pistol"), shared pools (Kasrkin: 4 special weapons in total) and weapons ("Chainfist":
+1 per 5 models). Write how many models carry each option, e.g.
+  "wargear": "4x Khornate eviscerator, 2x Plasma pistol"
+or give the models per type explicitly:
+  "composition": {"Berzerker w/ eviscerator and bolt pistol": 4}
+`bsdata.py unit` prints these caps as "L" lines.
+
 Output: the formatted list plus a list of problems (errors and warnings).
 Exit code 1 if there are errors.
 
@@ -171,20 +180,152 @@ def price(unit, models):
 
 def wargear_cost(unit, text):
     """Charge paid options whose names appear in the wargear text."""
-    total, names = 0, set()
-    low = text.lower()
-    for o in unit.get("options", []):
-        if not o.get("pts") or "name" not in o or o["name"] in names:
-            continue
-        nm = o["name"].lower()
-        idx = low.find(nm)
-        if idx < 0:
-            continue
-        m = re.search(r"(\d+)\s*x\s*$", low[:idx])
-        n = int(m.group(1)) if m else 1
-        total += o["pts"] * n
-        names.add(o["name"])
-    return total, names
+    opts = {o["name"]: o["pts"] for o in unit.get("options", []) if o.get("pts") and "name" in o}
+    cnt = named_counts(text, opts)
+    return sum(opts[k] * c for k, c in cnt.items()), set(cnt)
+
+
+def named_counts(text, names):
+    """{name: count} for the names that appear in free text. A count is written
+    before the name ("4x Khornate eviscerator", "2 x Plasma pistol"); no count means 1.
+    Longer names win, so 'Flamer' does not match inside 'Heavy flamer'."""
+    low = (text or "").lower()
+    out = {}
+    for nm in sorted(set(names), key=len, reverse=True):
+        pat = re.compile(r"(?:(\d+)\s*x\s*)?(?<![\w-])" + re.escape(nm.lower()) + r"(?:e?s)?(?![\w-])")
+        for m in pat.finditer(low):
+            out[nm] = out.get(nm, 0) + int(m.group(1) or 1)
+        low = pat.sub(lambda m: " " * len(m.group(0)), low)
+    return out
+
+
+def _at(v, n, lo):
+    if isinstance(v, list):
+        return v[max(0, min(len(v) - 1, n - lo))]
+    return v
+
+
+class _Caps:
+    """Model-type and weapon caps of one unit at one size, from its compiled limits."""
+
+    def __init__(self, unit, n):
+        L = unit["limits"]
+        self.unit, self.n, self.lo = unit, n, L["sizes"][0]
+        self.mt, self.weapons = L["models"], L["weapons"]
+        self.uncertain = set(L.get("uncertain", []))
+        self.mins = {t: self.at(v["min"]) or 0 for t, v in self.mt.items()}
+        self.maxs = {t: self.at(v["max"]) for t, v in self.mt.items()}
+        self.pools = {p: (self.at(v["max"]), v["members"]) for p, v in L["pools"].items()}
+        # the data's unit structure may not match this size (some units compile as 1 model)
+        self.ok = sum(self.mins.values()) <= n and L["sizes"][0] <= n <= L["sizes"][1]
+
+    def at(self, v):
+        return _at(v, self.n, self.lo)
+
+    def eff(self, t):
+        cap = self.maxs[t] if self.maxs[t] is not None else self.n
+        return max(0, min(cap, self.n - sum(v for o, v in self.mins.items() if o != t)))
+
+    def weapon(self, wname):
+        """Most copies of this weapon the unit can have, or None if unknown."""
+        w, n = self.weapons[wname], self.n
+        car = w["carriers"]
+        pms = [self.at(pm) for pm in car.values()]
+        if not pms or any(pm is None for pm in pms):
+            return None
+        per = max(pms)
+        typed = [t for t in car if t in self.mt]
+        if typed:
+            bound = sum(self.eff(t) for t in typed)
+            bound = min(bound, n - sum(v for o, v in self.mins.items() if o not in car))
+            for _, (pmax, members) in self.pools.items():
+                if pmax is not None and any(t in members for t in typed):
+                    bound = min(bound, pmax + sum(self.eff(t) for t in typed if t not in members))
+            cap = bound * per
+        else:
+            cap = per * (n if self.unit["name"] in car or not self.mt else 1)
+        um = self.at(w["unit_max"])
+        return min(cap, um) if um is not None else cap
+
+
+def wargear_caps(unit, n):
+    """({model type: max}, {pool: (max, members)}, {weapon: max}, uncertain names) for
+    a unit of n models, or None when the data cannot tell. Used by bsdata.py unit."""
+    if not unit.get("limits"):
+        return None
+    c = _Caps(unit, n)
+    if not c.ok:
+        return None
+    return ({t: c.eff(t) for t in c.mt}, c.pools, {w: c.weapon(w) for w in c.weapons}, c.uncertain)
+
+
+def wargear_limits_check(unit, models, text="", composition=None, loadout=None):
+    """Check model-type counts and weapon counts against the datasheet's limits
+    for this unit size. Returns (errors, warnings)."""
+    if not unit.get("limits"):
+        return [], []
+    errs, warns = [], []
+    C = _Caps(unit, models)
+    n, mt, weapons, mins, pools = models, C.mt, C.weapons, C.mins, C.pools
+    if not C.ok:
+        return [], ([f"{unit['name']}: wargear limits not checked (unit structure in the data does not match "
+                     f"{n} model{'s' if n != 1 else ''}); check the datasheet"] if text or composition or loadout else [])
+
+    def report(name, msg):
+        unsure = name in C.uncertain
+        (warns if unsure else errs).append(
+            f"{unit['name']}: {msg}" + (" (the data has conditions that may raise this limit; check the datasheet)"
+                                        if unsure else ""))
+
+    # explicit composition {"model type": count}; else model types named in the text
+    explicit = bool(composition)
+    if not composition and text:
+        composition = named_counts(text, [t for t in mt if t.lower() != unit["name"].lower()])
+    counts = named_counts(text, weapons) if text else {}
+    for wname, c in (loadout or {}).items():
+        base = next((w for w in sorted(weapons, key=len, reverse=True)
+                     if wname.lower() == w.lower() or wname.lower().startswith(w.lower() + " ")), None)
+        if base:
+            counts[base] = max(counts.get(base, 0), c)
+    # weapons that only one model type carries imply that many models of that type
+    if not explicit:
+        composition = dict(composition or {})
+        for wname, c in counts.items():
+            typed = [t for t in weapons[wname]["carriers"] if t in mt]
+            pm = C.at(weapons[wname]["carriers"].get(typed[0])) if len(typed) == 1 else None
+            if pm:
+                composition[typed[0]] = max(composition.get(typed[0], 0), -(-c // pm))
+    if composition:
+        given = {}
+        for t, c in composition.items():
+            key = next((k for k in mt if k.lower() == t.lower()), None) or \
+                next((k for k in mt if t.lower() in k.lower()), None)
+            if not key:
+                errs.append(f"{unit['name']}: no model type '{t}' (types: {', '.join(mt)})")
+                continue
+            given[key] = given.get(key, 0) + c
+        for key, c in given.items():
+            if c > C.eff(key):
+                report(key, f"{c}x {key} but at most {C.eff(key)} in a unit of {n}")
+        for p, (pmax, members) in pools.items():
+            s = sum(given.get(m, 0) for m in members)
+            if pmax is not None and s > pmax:
+                report(p, f"{s} models from '{p}' ({', '.join(m for m in members if given.get(m))}) but at most {pmax}")
+        total = sum(given.values())
+        room = n - sum(v for t, v in mins.items() if t not in given)
+        if explicit and total > n:
+            errs.append(f"{unit['name']}: composition adds up to {total} models, unit has {n}")
+        elif total > room:
+            errs.append(f"{unit['name']}: {total} models with these loadouts "
+                        f"({', '.join(f'{c}x {t}' for t, c in given.items())}) but only {room} fit in a unit of {n} "
+                        f"after the required models")
+
+    # weapons named in the wargear text / loadout
+    for wname, c in counts.items():
+        cap = C.weapon(wname)
+        if cap is not None and c > cap:
+            report(wname, f"{c}x {wname} but at most {cap} in a unit of {n} model{'s' if n != 1 else ''}")
+    return errs, warns
 
 
 def surcharge(unit, copy_index):
@@ -284,6 +425,15 @@ def check(spec):
                     warnings.append(f"{e['name']} on {u['name']}: only Upgrade enhancements go on non-CHARACTER units; "
                                     "the data allows it but check the detachment text")
         gear_pts, gear_names = wargear_cost(u, entry.get("wargear") or "")
+        lo_spec = entry.get("loadout")
+        loadout = {}
+        for part in (lo_spec or "").split(","):
+            m = re.match(r"\s*(?:(\d+)\s*x\s*)?(.+?)\s*$", part, re.I)
+            if m and m.group(2):
+                loadout[m.group(2).lower()] = int(m.group(1) or 1)
+        lerr, lwarn = wargear_limits_check(u, models, entry.get("wargear") or "", entry.get("composition"), loadout)
+        errors += lerr
+        warnings += lwarn
         gear_slots = [o["name"] for o in u.get("options", []) if o.get("enhancement_slot") and o["name"] in gear_names]
         if gear_slots and enh_name:
             errors.append(f"{u['name']}: {', '.join(gear_slots)} uses an Enhancement slot, so the unit cannot also take {enh_name}")
