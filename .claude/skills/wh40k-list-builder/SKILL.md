@@ -42,6 +42,20 @@ use the default and state it in the answer.
 If the user gives a collection, convert it to unit names and model counts
 (`--owned "Unit=models,..."`); map nicknames to datasheet names using `bsdata.py units`.
 
+**Player library** (`scripts/library.py`, stored in `~/.wh40k`, outside any repo):
+
+- **Collections.** When the user gives a collection, save it so they never have to repeat
+  it: `library.py collection-set "<faction>" "Unit=models,..." [--note "..."]` (adds to
+  what is saved; `--replace` overwrites; `Unit=0` removes). Record assumptions you made
+  while mapping names as `--note` (e.g. which Warriors variant) and mention them. If the
+  user does not give a collection, check `library.py collection "<faction>"`; when one
+  exists, use it (`optimize.py --owned saved`) and say so in the answer. If the user's
+  wording is ambiguous ("warriors"), the command refuses it — ask or pick and note it.
+- **Previous lists.** When the user refers to a list made earlier ("the Chaos list you
+  gave me", "change my Tyranid list"), run `library.py lists [--faction X]` and
+  `library.py show <file or title words>` and build on it. If several could match, use
+  the newest and say which one you took.
+
 ## Step 2 — Load the data
 
 ```bash
@@ -139,6 +153,12 @@ characters lead it), and prints the list in a clean format. Fix every
 error. Resolve warnings or explain them to the user. Never present a list that fails
 this check.
 
+Once the final list passes, store it in the player library (it refuses lists with errors):
+
+```bash
+python3 scripts/library.py save-list my_list.json
+```
+
 ## Step 7 — Measure the chosen list
 
 Run metrics on the validated list so the explanation can quote numbers (add `"loadout"`
@@ -155,7 +175,8 @@ heavy and anti-tank fire, and total OC. Use those numbers in "Why this list".
 
 The only deliverable is the chat answer: **exactly one** list. Do not offer
 alternatives. Do **not** export Excel, CSV, PDF or any other file. Scratch JSON used
-with `check_list.py` is internal; do not present those paths as the result.
+with `check_list.py` and the copy saved by `library.py` are internal; do not present
+those paths as the result (one line saying the list was saved is fine).
 
 ## Output format
 
