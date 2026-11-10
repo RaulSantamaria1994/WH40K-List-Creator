@@ -62,7 +62,7 @@ If the user gives a collection, convert it to unit names and model counts
 python3 scripts/bsdata.py sync                       # update the cache (fast if fresh)
 python3 scripts/bsdata.py units "<faction>"          # all units: role, sizes, points, stats, copy limit, surcharge
 python3 scripts/bsdata.py detachments "<faction>"    # DP cost, tags, rules, enhancements (+ battle-size limits)
-python3 scripts/bsdata.py unit "<faction>" "A,B,C"   # full datasheets: weapons, abilities, leader targets, options
+python3 scripts/bsdata.py unit "<faction>" "A,B,C"   # full datasheets: weapons, abilities, leader targets, options, wargear limits (L)
 ```
 
 Add `--allies` / `--legends` to `units` only if the user wants them. Read
@@ -144,11 +144,16 @@ Format (see the script docstring for all fields):
    {"name": "Tyrannofex", "wargear": "Rupture cannon"}]}
 ```
 
-Write the chosen weapons in `wargear`: options that cost points in the data (shown as
-`O +20pts Rupture cannon` by `bsdata.py unit`) are charged when named there, and the
-checker warns about paid options you did not mention.
+Write the chosen weapons in `wargear` with how many models carry each one
+(`"4x Khornate eviscerator, 2x Plasma pistol"`). Options that cost points in the data
+(shown as `O +20pts Rupture cannon` by `bsdata.py unit`) are charged when named there, and
+the checker warns about paid options you did not mention. Counts are checked against the
+datasheet's wargear limits for that unit size — the `L` lines of `bsdata.py unit`, e.g.
+`Chainfist: up to 1 at 5 models / 2 at 10+ models` or `up to 4 in total from: <special
+weapon models>`. Read those lines before choosing wargear; a limit marked "conditional"
+depends on other choices and only gives a warning.
 
-It prices everything (sizes, repeat-copy surcharges, paid wargear, enhancements), checks points, DP,
+It prices everything (sizes, repeat-copy surcharges, paid wargear, enhancements), checks points, DP, wargear limits,
 unique tags, unit limits (x2 Battleline, Epic Heroes 1), enhancement limit and
 eligibility, Leader/Support attachments (only one Enhancement per unit when two
 characters lead it), and prints the list in a clean format. Fix every
