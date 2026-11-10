@@ -111,11 +111,11 @@ python3 scripts/bsdata.py unit necrons "Overlord,Lychguard"
 ```
 
 ```bash
-python3 scripts/metrics.py necrons --per100
+python3 scripts/metrics.py necrons --per100 --top 20
 ```
 
 ```bash
-python3 scripts/optimize.py necrons --points 2000 --must "Overlord,Lychguard:10" --weights "tank=1.5,durability=1" --top 3
+python3 scripts/optimize.py necrons --points 2000 --must "Overlord,Lychguard:10" --weights "tank=1.5,durability=1"
 ```
 
 ```bash
@@ -195,7 +195,8 @@ Upgrade en unidades no personaje, Epic Heroes únicos y sin mejoras. Detalle en
 ├── scripts/                      # bsdata, metrics, optimize, check_list, library
 ├── references/
 │   ├── army-rules-11e.md         # reglas de construcción de ejército
-│   └── list-strategy.md          # roles, pesos por estilo, enfrentamientos, sinergias
+│   ├── list-strategy.md          # roles, enfrentamientos, cómo leer las métricas (opcional)
+│   └── mods.md                   # sintaxis de --mods para modelar reglas de destacamento
 └── evals/                        # casos de prueba (formato claude plugin eval)
 ```
 

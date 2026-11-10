@@ -1,139 +1,109 @@
 ---
 name: wh40k-list-builder
-description: Build the strongest legal Warhammer 40,000 (11th edition) army list for a player's needs using live BSData unit data (points, datasheets, weapons, detachments, enhancements) plus mathhammer analysis and an optimiser, returning one list on screen only (never alternatives, Excel or other files). Use this whenever someone wants to create, optimise, improve, compare or check a 40k army list — e.g. "hazme una lista de necrones a 2000", "best Space Marines list with what I own", "what should I add to my Tyranids for 1000 pts", "list to beat Imperial Knights", "is this list legal / how many points" — even if they don't say "list" and only mention a faction, points, detachments, units or their collection. Also for questions about unit value per point or which detachment fits a playstyle.
+description: Build the strongest legal Warhammer 40,000 (11th edition) army list from live BSData (points, datasheets, detachments, enhancements) plus mathhammer and an optimiser; one list on screen only. Use whenever someone wants to create, optimise, improve, compare or check a 40k list or asks about unit value per point or detachment fit — e.g. "hazme una lista de necrones a 2000", "best list with what I own", "list to beat Imperial Knights", "is this list legal" — even if they only mention a faction, points, units or their collection.
 ---
 
 # Warhammer 40k 11th edition list builder
 
-You build **one** army list that is **legal**, **as strong as possible for what the
-player wants**, and **explained**. Strength comes from two sources that you combine:
+Build **one** list that is **legal**, **as strong as possible for what the player wants**
+and **explained**. Scripts give the numbers (BSData wh40k-11e); you add judgement
+(detachment rules, leaders, enhancements, delivery, roles). Never invent points, stats
+or rules; if data looks wrong, say so.
 
-1. **Numbers** — scripts read the current BSData files (github.com/BSData/wh40k-11e)
-   and compute damage, durability and objective control per point, then search unit
-   combinations under the points budget.
-2. **Judgement** — you add what numbers miss: detachment rules, leaders, enhancements,
-   delivery (transports, deep strike), roles, missions, and the player's taste.
+**Token budget:** every command below prints only what you ask for. Do not run a command
+twice, do not print whole tables when a filter exists, and do not read the files in
+`references/` unless a step says so. Scripts are in `scripts/` (`python` on Windows,
+`python3` elsewhere); they download and cache the data automatically (12 h), so there
+is no separate sync step. Faction names match loosely ("necrons", "guard", "tau").
 
-Never invent points, stats or rules: everything about units comes from the scripts. If
-data looks wrong, say so rather than silently fixing it.
-
-All scripts live in `scripts/` next to this file. Run them with `python3` (on Windows the
-command is usually `python`; the examples below use `python3`). They need
-network access to github.com the first time (data is cached in `~/.cache/wh40k-11e`,
-refreshed every 12 h). Faction names are matched loosely ("necrons", "blood angels",
-"guard", "tau", "craftworlds"…).
-
-## Step 1 — Understand the player
-
-Work out these inputs. Ask only for what you cannot infer, in one short message, in the
-user's language. **The faction is the only thing you cannot default**; for the rest,
-use the default and state it in the answer.
+## 1. Inputs
+Ask only what you cannot infer, in one short message, in the user's language. Only the
+**faction** has no default; state the defaults you used in the answer.
 
 | Input | Default |
 |---|---|
-| Faction / sub-faction (chapter, etc.) | — must ask |
+| Faction / chapter | must ask |
 | Battle size / points | Strike Force, 2000 |
-| Detachment(s) | you choose the best fit |
-| Collection (models owned) | everything available |
-| Play style (aggressive, defensive, objective, horde, elite, vehicles, fast…) | balanced all-comers |
-| Opponent / meta to beat | general meta |
-| Allies / Legends allowed | no / no |
+| Detachment(s) | best fit |
+| Collection | everything available |
+| Style / opponent | balanced all-comers |
+| Allies / Legends | no / no |
 
-If the user gives a collection, convert it to unit names and model counts
-(`--owned "Unit=models,..."`); map nicknames to datasheet names using `bsdata.py units`.
+**Library** (`scripts/library.py`, stored in `~/.wh40k`):
+- User gives a collection → `library.py collection-set "<faction>" "Unit=models,..." [--note "..."]`
+  (adds; `--replace` overwrites; `Unit=0` removes). Note name-mapping assumptions.
+  None given → `library.py collection "<faction>"`; if saved, use `--owned saved` and say so.
+- User mentions an earlier list → `library.py lists [--faction X]` then `library.py show <words>`;
+  take the newest if several match and say which.
 
-**Player library** (`scripts/library.py`, stored in `~/.wh40k`, outside any repo):
-
-- **Collections.** When the user gives a collection, save it so they never have to repeat
-  it: `library.py collection-set "<faction>" "Unit=models,..." [--note "..."]` (adds to
-  what is saved; `--replace` overwrites; `Unit=0` removes). Record assumptions you made
-  while mapping names as `--note` (e.g. which Warriors variant) and mention them. If the
-  user does not give a collection, check `library.py collection "<faction>"`; when one
-  exists, use it (`optimize.py --owned saved`) and say so in the answer. If the user's
-  wording is ambiguous ("warriors"), the command refuses it — ask or pick and note it.
-- **Previous lists.** When the user refers to a list made earlier ("the Chaos list you
-  gave me", "change my Tyranid list"), run `library.py lists [--faction X]` and
-  `library.py show <file or title words>` and build on it. If several could match, use
-  the newest and say which one you took.
-
-## Step 2 — Load the data
-
+## 2. Data (one command each, only what you need)
 ```bash
-python3 scripts/bsdata.py sync                       # update the cache (fast if fresh)
-python3 scripts/bsdata.py units "<faction>"          # all units: role, sizes, points, stats, copy limit, surcharge
-python3 scripts/bsdata.py detachments "<faction>"    # DP cost, tags, rules, enhancements (+ battle-size limits)
-python3 scripts/bsdata.py unit "<faction>" "A,B,C"   # full datasheets: weapons, abilities, leader targets, options, wargear limits (L)
+python scripts/bsdata.py units "<faction>" [--role Battleline|Character|Transport] [--allies] [--legends]
+python scripts/bsdata.py detachments "<faction>"                    # shortlist: rules cut to ~200 chars, enhancements as names + pts only
+python scripts/bsdata.py detachments "<faction>" --only "A,B"       # finalists: full rule and enhancement text
+python scripts/bsdata.py unit "<faction>" "A,B,C"                   # full datasheets: weapons, abilities, leaders, options, wargear limits (L lines)
 ```
+Run independent commands (e.g. `units` + `detachments`) in ONE shell call, and `units` only once. Fetch `unit` datasheets only for characters and units you are really
+considering (they are long).
 
-Add `--allies` / `--legends` to `units` only if the user wants them. Read
-`references/army-rules-11e.md` before choosing detachments — 11th edition lets you
-combine detachments with a Detachment Points budget, unique tags, force dispositions,
-Leader/Support characters and Upgrade enhancements, and those rules shape the list.
+**Rules the scripts enforce** (trust them; trust the data over this text): Strike Force
+2000 pts / 3 DP / 4 enhancements / 3 copies per datasheet (x2 for Battleline; Epic Heroes 1);
+Incursion 1000 / 2 / 2 / 2; Onslaught 3000 / 4 / 4 / 3. Detachments cost 1–3 DP, cannot
+share a unique tag; with several you choose ONE Force Disposition (Take and Hold,
+Disruption, Purge the Foe, Priority Assets, Reconnaissance) and it sets the mission.
+A bodyguard takes one Leader + one Support; only one of them may carry an Enhancement;
+Epic Heroes take none; Upgrade enhancements go on non-Characters. At least one Character
+(Warlord). Stratagems are not in the data. More detail: `references/army-rules-11e.md`
+(read it only if one of these points is unclear).
 
-## Step 3 — Choose detachment(s)
+## 3. Detachments
+Compare 2–3 setups (e.g. one 3 DP vs 2 DP + 1 DP). Pick the one whose rules buff the
+units that perform best; use `--only` for the full rules and enhancement effects of the finalists (the shortlist shows enhancement names only). Translate each
+main rule into `--mods` (syntax and examples: `references/mods.md`, read when you first
+need it) and run steps 4–5 with it, so the choice is measured.
 
-Read the detachment rules and enhancements. Pick the combination (within the DP budget,
-no shared unique tags) whose rules buff the units that perform best for this player.
-Usually compare 2–3 candidate setups instead of committing to the first one: a 3 DP
-army-wide detachment vs. a 2 DP + 1 DP pair focused on the units you want. Translate each
-candidate's main rule into `--mods` (`references/list-strategy.md` § 6) and run steps
-4–5 with it, so the comparison between detachments is measured, not guessed.
-
-## Step 4 — Measure the units
-
+## 4. Measure units
 ```bash
-python3 scripts/metrics.py "<faction>" --per100                 # value table for every unit (smallest size)
-python3 scripts/metrics.py "<faction>" --units "A,B" --size max # specific units at full size
-python3 scripts/metrics.py "<faction>" --units "Tank" --loadout "Tank=1xMain gun,2xSponson gun,1xArmoured hull"
+python scripts/metrics.py "<faction>" --per100 --top 20 [--sort tank|horde|elite|durability|oc]
+python scripts/metrics.py "<faction>" --units "A,B" --size max [--loadout "Tank=1xMain gun,2xSponson"]
 ```
+Columns: expected damage vs horde/MEQ/TEQ/vehicle/big (ranged | melee), attacks needed to
+wipe the unit (small/heavy/AT), OC, move, range, `value`. Multi-weapon models (`!` note)
+count only their best gun unless you give `--loadout` with all weapons. Numbers are
+averages with no buffs unless `--mods`: compare units, do not predict games.
 
-Columns: expected damage vs horde / MEQ / TEQ / vehicle / big target (ranged and
-melee), durability (attacks needed to wipe the unit from small arms, heavy, anti-tank
-weapons), OC, move, max range, and a `value` index. For multi-weapon vehicles and
-monsters the default only counts the best gun (`!` note) — pass `--loadout` with all
-their weapons (ranged and melee) before judging them. Read
-`references/list-strategy.md` § 5 for how far to trust these numbers.
-
-## Step 5 — Search combinations
-
-Decide the characters and the core you want (leaders for your best bodyguards, the
-units the detachment is built around), then let the optimiser fill the rest:
-
+## 5. Search
+Pick characters and the core first, then let the optimiser fill the rest:
 ```bash
-python3 scripts/optimize.py "<faction>" --points 2000 \
-  --must "Overlord,Lychguard:10,Necron Warriors:20x2" \
-  --weights "horde=1,elite=1,tank=1.5,durability=1,oc=0.5,move=0" \
-  [--owned "Unit=models,..."] [--only "A,B"] [--exclude "C"] [--loadout "..."] --top 3
+python scripts/optimize.py "<faction>" --points 2000 --must "Overlord,Lychguard:10,Necron Warriors:20x2" \
+  --weights "horde=1,elite=1,tank=1.5,durability=1,oc=0.5,move=0" [--owned "Unit=models,..."|saved] \
+  [--only "A,B"] [--exclude "C"] [--loadout "Unit=..."] [--mods "..."] [--copy-decay 1]
 ```
+`--must` = `Name[:size][xCopies]`; characters are only included if forced. Paid wargear in
+`--loadout` is priced in. `[variant]` tags show which weapon option was assumed. It prints one
+draft (`--top N` for more); treat it as a draft, fix it with the checklist and re-run
+with other `--must`/weights if needed (cheap).
 
-- Each extra copy of the same datasheet is valued a bit less (`--copy-decay`, default
-  0.85) so the search favours varied tools; use `--copy-decay 1` if the player wants spam.
+Weights (`horde, elite, tank, durability, oc, move`; default `1,1,1,1,0.5,0`):
 
-- `--must` entries are `Name[:size][xCopies]` and always included.
-- Paid wargear named in `--loadout` (e.g. a Rupture cannon) is added to the unit's cost,
-  the same way `check_list.py` prices it. Pass one `--loadout` flag per unit.
-- Weights express the play style and the matchup — see `references/list-strategy.md`
-  §§ 2–3 for presets. Explain the weights you chose in one line.
-- Characters are excluded from the search unless forced or `--include-characters`:
-  choose them yourself for their abilities.
-- Variants like `[Destroyer w/ gauss destructor]` tell you which weapon option the
-  numbers assumed; carry that into the list's wargear.
+| Wants | Weights |
+|---|---|
+| balanced / all-comers | default |
+| aggressive | `elite=1.5,tank=1.5,durability=0.5,oc=0.3,move=0.7` |
+| defensive | `horde=0.8,elite=0.8,tank=0.8,durability=2,oc=1.2` |
+| objectives | `horde=0.7,elite=0.8,tank=0.8,oc=1.5,move=1` |
+| vs armour/knights | `tank=2+` · vs hordes `horde=2` · vs elites `elite=2` · vs fast melee `durability=1.5` |
+| horde / elite / vehicles / fast | `--only` or `--exclude` by type · `durability=1.5` · `tank=1.5` · `move=1.5` |
 
-Treat the output as a strong draft, not the answer. Review it with the synergy
-checklist in `references/list-strategy.md` § 4 (detachment fit, leaders, enhancements,
-delivery, roles, leftover points) and adjust. Re-run with different `--must`/weights
-when you change your mind; that is cheap. `--top 3` is only for you to pick the
-strongest draft; present a single list.
+Explain the weights in one line. Checklist after the draft: detachment rule buffs the
+units; every strong bodyguard has a Leader that multiplies it; enhancements spent;
+melee/short-range units have delivery (transport, Deep Strike, speed); roles covered
+(anti-tank, anti-elite, anti-horde, objectives, cheap action units, durable anchor);
+≤ 25 pts left over; sensible Warlord. More on roles/matchups: `references/list-strategy.md`
+(optional).
 
-## Step 6 — Validate
-
-Write the list as JSON (in a scratch/working directory, not in the skill folder) and run:
-
-```bash
-python3 scripts/check_list.py my_list.json
-```
-
-Format (see the script docstring for all fields):
+## 6. Validate (mandatory)
+Write the list as JSON in a scratch directory and run `python scripts/check_list.py my_list.json`:
 
 ```json
 {"title": "Main - Awakened Dynasty", "faction": "necrons", "battle_size": "Strike Force",
@@ -143,81 +113,37 @@ Format (see the script docstring for all fields):
    {"name": "Lychguard", "models": 10},
    {"name": "Tyrannofex", "wargear": "Rupture cannon"}]}
 ```
+- `wargear`: chosen weapons with counts (`"4x Khornate eviscerator, 2x Plasma pistol"`).
+  Paid options (`O +20pts …` in `bsdata.py unit`) are charged only when named; counts are
+  checked against the `L` lines (wargear limits per unit size) of the datasheet.
+- Optional `"loadout"` (all weapons, for metrics) and `"mods"` (list or unit level).
+- It prices everything and checks points, DP, wargear, tags, copy limits, enhancements,
+  attachments, then prints the list. Fix every error; resolve or explain warnings. Never
+  show a list that fails.
 
-Write the chosen weapons in `wargear` with how many models carry each one
-(`"4x Khornate eviscerator, 2x Plasma pistol"`). Options that cost points in the data
-(shown as `O +20pts Rupture cannon` by `bsdata.py unit`) are charged when named there, and
-the checker warns about paid options you did not mention. Counts are checked against the
-datasheet's wargear limits for that unit size — the `L` lines of `bsdata.py unit`, e.g.
-`Chainfist: up to 1 at 5 models / 2 at 10+ models` or `up to 4 in total from: <special
-weapon models>`. Read those lines before choosing wargear; a limit marked "conditional"
-depends on other choices and only gives a warning.
+When it passes: `python scripts/library.py save-list my_list.json`, then
+`python scripts/metrics.py --compare my_list.json [--mods "..."]` for the numbers you
+quote (units, models, anti-horde/elite/tank, durability, OC); say which numbers include mods.
 
-It prices everything (sizes, repeat-copy surcharges, paid wargear, enhancements), checks points, DP, wargear limits,
-unique tags, unit limits (x2 Battleline, Epic Heroes 1), enhancement limit and
-eligibility, Leader/Support attachments (only one Enhancement per unit when two
-characters lead it), and prints the list in a clean format. Fix every
-error. Resolve warnings or explain them to the user. Never present a list that fails
-this check.
-
-Once the final list passes, store it in the player library (it refuses lists with errors):
-
-```bash
-python3 scripts/library.py save-list my_list.json
-```
-
-## Step 7 — Measure the chosen list
-
-Run metrics on the validated list so the explanation can quote numbers (add `"loadout"`
-to a unit entry in the JSON for multi-weapon models):
-
-```bash
-python3 scripts/metrics.py --compare main.json [--mods "lethal@vehicle,monster"]
-```
-
-Put the detachment rule and leader effects you modelled in the list JSON (`"mods"` at
-list or unit level) or pass `--mods`, and say in the answer which numbers include them.
-
-It prints units, models, anti-horde / anti-elite / anti-tank output, durability against
-heavy and anti-tank fire, and total OC. Use those numbers in "Why this list".
-
-## Step 8 — Show one list on screen only
-
-The only deliverable is the chat answer: **exactly one** list. Do not offer
-alternatives. Do **not** export Excel, CSV, PDF or any other file. Scratch JSON used
-with `check_list.py` and the copy saved by `library.py` are internal; do not present
-those paths as the result (one line saying the list was saved is fine).
-
-## Output format
-
-Answer in the user's language. Keep unit, weapon, detachment and enhancement names in
-English as in the data/app so the user can type them into their list builder.
+## 7. Answer: one list, on screen only
+No alternatives, no Excel/CSV/PDF/files (one line saying it was saved is fine). Answer in
+the user's language; keep unit/weapon/detachment/enhancement names in English. Be
+concise: the list block does most of the work, so keep everything after it to roughly
+250–350 words.
 
 ```
 # <List name> — <Faction>, <points> pts
-
-**Summary:** battle size · detachment(s) (DP used) · force disposition · points used · enhancements used
-
-<the list block printed by check_list.py, inside a code block>
-
+**Summary:** battle size · detachment(s) (DP) · force disposition · points · enhancements
+<list block printed by check_list.py, in a code block>
 ## Why this list
-- Plan in one or two sentences (how it wins games).
-- Each role (anti-tank, anti-elite, anti-horde, objectives, scoring, anchor): which units
-  fill it and the key number that justifies them (e.g. "~9 wounds vs vehicles per turn").
-- Key synergies: leaders, detachment rule, enhancements.
-- Force Disposition: which one you pick among those your detachments grant, and why it
-  suits this army (it decides the mission you play against the opponent's disposition).
-- What the player asked for and how the list reflects it (style, collection, opponent).
-
-## How to play it (short)
-Deployment, first turns, what to protect, what to trade.
-
+- Plan in 1–2 sentences.
+- Each role: units + key number (e.g. "~9 wounds vs vehicles/turn").
+- Synergies: leaders, detachment rule, enhancements; which Force Disposition and why.
+- How it reflects what the player asked (style, collection, opponent).
+## How to play it
+2–3 lines: deployment, first turns, what to protect/trade.
 ## Notes
-- Assumptions (defaults you chose, Onslaught limits if relevant, etc.).
-- Data: BSData wh40k-11e revision <from the scripts>. Stratagems are not in the data;
-  anything about them comes from general knowledge.
+Defaults assumed; data revision from the scripts; stratagems come from general knowledge.
 ```
-
-If the user only asked a narrow question (e.g. "is this list legal?", "which is better
-per point, X or Y?"), answer just that with the relevant script output instead of the
-full template.
+For a narrow question ("is it legal?", "X or Y per point?") answer only that, with the
+relevant script output, not the template.

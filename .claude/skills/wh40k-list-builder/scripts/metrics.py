@@ -575,6 +575,7 @@ def main():
     ap.add_argument("--melee-weight", type=float, default=0.7, help="discount for melee damage being harder to deliver")
     ap.add_argument("--mods", action="append", default=[],
                     help='rule modifiers, e.g. "MONSTER: hit+1; oc+2" or "lethal@vehicle,monster" (repeatable)')
+    ap.add_argument("--top", type=int, default=0, help="show only the first N rows after sorting")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
@@ -613,6 +614,8 @@ def main():
         rows.sort(key=lambda r: -r["value"])
     else:
         rows.sort(key=lambda r: -r["scores_per100"][key])
+    if a.top:
+        rows = rows[:a.top]
     if a.json:
         print(json.dumps(rows, ensure_ascii=False, indent=1))
         return

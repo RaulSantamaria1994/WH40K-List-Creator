@@ -302,7 +302,7 @@ def main():
     ap.add_argument("--legends", action="store_true")
     ap.add_argument("--copy-decay", type=float, default=0.85,
                     help="value multiplier for each extra copy of the same unit (1 = no diversity bonus)")
-    ap.add_argument("--top", type=int, default=3)
+    ap.add_argument("--top", type=int, default=1)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--iterations", type=int, default=300)
     ap.add_argument("--json", action="store_true")
@@ -323,11 +323,14 @@ def main():
         cost = pr.cost(items)
         print(f"\n## Option {i}: value {v:.3f}, {cost} pts ({pr.budget - cost} left)")
         seen = Counter()
+        lines = Counter()  # identical lines are printed once with a count
         for o in sorted(items, key=lambda o: (o["name"], o["size"])):
             seen[o["name"]] += 1
             sur = bsdata_surcharge(o["unit"], seen[o["name"]])
             var = f" [{o['variant']}]" if o.get("variant") else ""
-            print(f"  - {o['name']} x{o['size']}{var} — {o['pts'] + sur} pts" + (f" (incl. +{sur} repeat surcharge)" if sur else ""))
+            lines[f"{o['name']} x{o['size']}{var} — {o['pts'] + sur} pts" + (f" (incl. +{sur} repeat surcharge)" if sur else "")] += 1
+        for txt, n in lines.items():
+            print(f"  - {txt}" if n == 1 else f"  - {n}× {txt.replace(' pts', ' pts each', 1)}")
         cover = ", ".join(f"{c} {tot[c] / pr.ref[c]:.2f}x" for c in CATS if c != "move" and pr.weights.get(c))
         print(f"  coverage vs average-unit reference: {cover}")
 

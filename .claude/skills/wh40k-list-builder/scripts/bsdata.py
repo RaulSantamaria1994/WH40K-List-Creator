@@ -1096,7 +1096,7 @@ def stat_str(p):
 def cmd_units(a):
     d = load(a.faction)
     print(f"# {d['faction']}  (data {d['data_revision']})")
-    print("name | role | models | pts | stats | max | surcharge | keywords")
+    print("name | role | models | pts | M T Sv W OC | limits | keywords   (limits: max copies; #N+:+X = surcharge from copy N; keywords omit Infantry/Character)")
     for u in d["units"]:
         if u["hidden"] and not a.legends:
             continue
@@ -1106,15 +1106,20 @@ def cmd_units(a):
             continue
         if u["ally"] and not a.allies:
             continue
+        if a.role and a.role.lower() not in u["role"].lower():
+            continue
         if a.grep and a.grep.lower() not in json.dumps(u).lower():
             continue
         if not u["points"] or all(t["pts"] == 0 for t in u["points"]):
             continue
         st = stat_str(u["profiles"][0]) if u["profiles"] else ""
-        sur = ",".join(f"#{s['from_copy']}+:+{s['extra_pts']}" for s in u["copy_surcharge"])
-        kw = ",".join(k for k in u["keywords"] if k not in (u["name"],))[:90]
+        st = re.sub(r" Ld\S+", "", st)
+        lim = ",".join(x for x in ([f"max{u['max_copies']}"] if u["max_copies"] else []) +
+                       [f"#{s['from_copy']}+:+{s['extra_pts']}" for s in u["copy_surcharge"]])
+        skip = {u["name"], "Infantry", "Character"}
+        kw = ",".join(k for k in u["keywords"] if k not in skip)[:60]
         tag = f" [ally:{u['ally']}]" if u["ally"] else ""
-        print(f"{u['name']}{tag} | {u['role']} | {u['models']['min']}-{u['models']['max']} | {pts_str(u)} | {st} | {u['max_copies'] or '-'} | {sur} | {kw}")
+        print(f"{u['name']}{tag} | {u['role']} | {u['models']['min']}-{u['models']['max']} | {pts_str(u)} | {st} | {lim} | {kw}")
 
 
 def cmd_unit(a):
@@ -1222,15 +1227,25 @@ def cmd_detachments(a):
     lim = d["limits"]
     print(f"# Detachments for {d['faction']}  (data {d['data_revision']})")
     print(f"Detachment Points by battle size: {lim['detachment_points']}; enhancements: {lim['enhancements']}; " + "; ".join(lim["notes"]))
+    only = [w.strip().lower() for w in (a.only or "").split(",") if w.strip()]
     for det in d["detachments"]:
+        if only and not any(w in det["name"].lower() for w in only):
+            continue
+        full = a.full or bool(only)  # --only shows the shortlisted detachments in full
         src = "" if det.get("source") == d["faction"] else f"  (from {det.get('source')})"
         print(f"\n## {det['name']}  [{det['detachment_points']} DP]  tags: {', '.join(det['tags'])}{src}")
         for r in det["rules"]:
-            txt = r["text"] if a.full else clean(r["text"], 350)
+            txt = r["text"] if full else clean(r["text"], 200)
             print(f"  Rule {r['name']}: {txt}")
+        if not full:  # shortlist view: one line, effects only with --only/--full
+            def _enh(e):
+                m = re.match(r"\s*([A-Z' ]+?) model only", e["text"] or "")
+                return f"{e['name']} {e['pts']}" + (f" [{m.group(1).title()}]" if m else "") + (f" x{e['max_in_army']}" if e["max_in_army"] > 1 else "")
+            if det["enhancements"]:
+                print("  Enh (name pts [restriction]): " + "; ".join(_enh(e) for e in det["enhancements"]))
+            continue
         for e in det["enhancements"]:
-            txt = e["text"] if a.full else clean(e["text"], 200)
-            print(f"  Enh {e['name']} ({e['pts']} pts, max {e['max_in_army']}): {txt}  {units_str(e['units'])}")
+            print(f"  Enh {e['name']} ({e['pts']} pts, max {e['max_in_army']}): {e['text']}  {units_str(e['units'])}")
     if d["unassigned_enhancements"]:
         print(f"\n({len(d['unassigned_enhancements'])} other enhancements are not tied to any of these detachments "
               "- usually allied-faction or Crusade items; ignore them for matched play)")
@@ -1247,9 +1262,9 @@ def main():
     s = sp.add_parser("sync"); s.add_argument("--force", action="store_true")
     sp.add_parser("factions")
     s = sp.add_parser("build"); s.add_argument("faction"); s.add_argument("--force", action="store_true")
-    s = sp.add_parser("units"); s.add_argument("faction"); s.add_argument("--legends", action="store_true"); s.add_argument("--allies", action="store_true"); s.add_argument("--grep")
+    s = sp.add_parser("units"); s.add_argument("faction"); s.add_argument("--legends", action="store_true"); s.add_argument("--allies", action="store_true"); s.add_argument("--grep"); s.add_argument("--role", help="filter by role, e.g. Battleline, Character, Transport")
     s = sp.add_parser("unit"); s.add_argument("faction"); s.add_argument("name")
-    s = sp.add_parser("detachments"); s.add_argument("faction"); s.add_argument("--full", action="store_true")
+    s = sp.add_parser("detachments"); s.add_argument("faction"); s.add_argument("--full", action="store_true"); s.add_argument("--only", help="comma separated detachment names (substring); prints them untruncated")
     sp.add_parser("limits")
     a = ap.parse_args()
     if a.cmd == "sync":
