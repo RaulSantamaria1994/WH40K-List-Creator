@@ -89,6 +89,9 @@ Claude. Los nombres de facción se buscan de forma flexible (`necrons`, `blood a
 | `metrics.py` | Mathhammer por unidad, y comparación de listas completas (`--compare`) |
 | `optimize.py` | Busca combinaciones de unidades bajo un presupuesto de puntos |
 | `check_list.py` | Calcula puntos, valida e imprime una lista |
+| `library.py` | Guarda tus colecciones y las listas validadas en `~/.wh40k` (fuera del repo) |
+
+En Windows el comando suele ser `python` en lugar de `python3`.
 
 ```bash
 cd .claude/skills/wh40k-list-builder
@@ -117,6 +120,18 @@ python3 scripts/optimize.py necrons --points 2000 --must "Overlord,Lychguard:10"
 ```bash
 python3 scripts/check_list.py mi_lista.json
 ```
+
+```bash
+python3 scripts/library.py collection-set tyranids "Termagants=30,Hive Guard=3,Tyrannofex=1"
+python3 scripts/optimize.py tyranids --points 1000 --owned saved
+python3 scripts/library.py save-list mi_lista.json
+python3 scripts/library.py lists --faction tyranids
+python3 scripts/library.py show "nombre de la lista"
+```
+
+La biblioteca vive en `~/.wh40k` (o en `$WH40K_HOME`), no dentro del repositorio, para que
+tus listas y tu colección no se suban a GitHub. Claude guarda ahí cada lista que valida y
+la colección que le das, y las reutiliza cuando le pides cambiar "la lista que me diste".
 
 ### Formato de lista (JSON)
 
@@ -168,7 +183,7 @@ Upgrade en unidades no personaje, Epic Heroes únicos y sin mejoras. Detalle en
 ```
 .claude/skills/wh40k-list-builder/
 ├── SKILL.md                      # flujo de trabajo que sigue Claude
-├── scripts/                      # bsdata, metrics, optimize, check_list
+├── scripts/                      # bsdata, metrics, optimize, check_list, library
 ├── references/
 │   ├── army-rules-11e.md         # reglas de construcción de ejército
 │   └── list-strategy.md          # roles, pesos por estilo, enfrentamientos, sinergias

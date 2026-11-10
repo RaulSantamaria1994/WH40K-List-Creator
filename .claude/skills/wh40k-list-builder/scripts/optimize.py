@@ -17,7 +17,7 @@ Usage:
   optimize.py <faction> --points 2000 [--battle-size "Strike Force"]
       [--weights "horde=1,elite=1,tank=1,durability=1,oc=0.5,move=0"]
       [--must "Overlord,Lychguard:10,Necron Warriors:20x2"]
-      [--only "A,B,C"] [--exclude "A,B"] [--owned "Necron Warriors=40,Immortals=10" | --owned owned.json]
+      [--only "A,B,C"] [--exclude "A,B"] [--owned "Necron Warriors=40,Immortals=10" | --owned owned.json | --owned saved]
       [--loadout "Unit=3xWeapon,..."] [--include-characters] [--allies] [--legends]
       [--copy-decay 0.85] [--top 3] [--seed 1] [--iterations 400] [--json]
 """
@@ -27,6 +27,12 @@ import math
 import random
 import re
 import sys
+
+for _s in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 from collections import Counter
 from pathlib import Path
 
@@ -47,14 +53,35 @@ def parse_kv(s, cast=float):
     return out
 
 
-def parse_owned(s):
+def parse_owned(s, faction=None):
     if not s:
         return {}
+    if s.strip().lower() == "saved":
+        import library
+        owned = library.owned_map(faction)
+        if owned is None:
+            raise SystemExit(f"--owned saved: no saved collection for '{faction}' (library.py collection-set)")
+        return owned
     p = Path(s)
     if p.exists():
-        raw = json.loads(p.read_text())
-        return {k.lower(): int(v) for k, v in raw.items()}
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        raw = raw.get("units", raw)  # library collection files wrap the map in "units"
+        return {k.lower(): int(v) for k, v in raw.items() if not k.startswith("_")}
     return {k: int(v) for k, v in parse_kv(s, float).items()}
+
+
+def paid_wargear(unit, loadout):
+    """Points for paid options named in a --loadout (same rule as check_list: pts x count)."""
+    if not loadout:
+        return 0
+    total = 0
+    for o in unit.get("options", []):
+        if not o.get("pts") or o.get("enhancement_slot") or "name" not in o:
+            continue
+        nm = o["name"].lower()
+        n = loadout.get(nm) or next((c for w, c in loadout.items() if nm in w or w in nm), 0)
+        total += o["pts"] * n
+    return total
 
 
 def parse_must(s):
@@ -84,7 +111,7 @@ class Problem:
         self.weights = {c: 0.0 for c in CATS}
         self.weights.update({"horde": 1, "elite": 1, "tank": 1, "durability": 1, "oc": 0.5})
         self.weights.update(parse_kv(a.weights))
-        self.owned = parse_owned(a.owned)
+        self.owned = parse_owned(a.owned, a.faction)
         self.copy_decay = a.copy_decay
         self.limit = UNIT_LIMIT.get(a.battle_size, 3)
         loadouts = {}
@@ -133,7 +160,8 @@ class Problem:
     def _option(self, u, size, loadout, variant=None):
         m = metrics.unit_metrics(u, size, loadout, variant)
         sc = metrics.derived(m)
-        return {"name": u["name"], "size": m["size"], "pts": m["pts"], "scores": sc, "unit": u, "variant": variant,
+        gear = paid_wargear(u, loadout)
+        return {"name": u["name"], "size": m["size"], "pts": m["pts"] + gear, "gear_pts": gear, "scores": sc, "unit": u, "variant": variant,
                 "battleline": "Battleline" in u["keywords"], "epic": "Epic Hero" in u["keywords"]}
 
     def cost(self, items):

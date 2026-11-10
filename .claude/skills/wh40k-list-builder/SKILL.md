@@ -17,7 +17,8 @@ player wants**, and **explained**. Strength comes from two sources that you comb
 Never invent points, stats or rules: everything about units comes from the scripts. If
 data looks wrong, say so rather than silently fixing it.
 
-All scripts live in `scripts/` next to this file. Run them with `python3`. They need
+All scripts live in `scripts/` next to this file. Run them with `python3` (on Windows the
+command is usually `python`; the examples below use `python3`). They need
 network access to github.com the first time (data is cached in `~/.cache/wh40k-11e`,
 refreshed every 12 h). Faction names are matched loosely ("necrons", "blood angels",
 "guard", "tau", "craftworlds"…).
@@ -40,6 +41,20 @@ use the default and state it in the answer.
 
 If the user gives a collection, convert it to unit names and model counts
 (`--owned "Unit=models,..."`); map nicknames to datasheet names using `bsdata.py units`.
+
+**Player library** (`scripts/library.py`, stored in `~/.wh40k`, outside any repo):
+
+- **Collections.** When the user gives a collection, save it so they never have to repeat
+  it: `library.py collection-set "<faction>" "Unit=models,..." [--note "..."]` (adds to
+  what is saved; `--replace` overwrites; `Unit=0` removes). Record assumptions you made
+  while mapping names as `--note` (e.g. which Warriors variant) and mention them. If the
+  user does not give a collection, check `library.py collection "<faction>"`; when one
+  exists, use it (`optimize.py --owned saved`) and say so in the answer. If the user's
+  wording is ambiguous ("warriors"), the command refuses it — ask or pick and note it.
+- **Previous lists.** When the user refers to a list made earlier ("the Chaos list you
+  gave me", "change my Tyranid list"), run `library.py lists [--faction X]` and
+  `library.py show <file or title words>` and build on it. If several could match, use
+  the newest and say which one you took.
 
 ## Step 2 — Load the data
 
@@ -93,6 +108,8 @@ python3 scripts/optimize.py "<faction>" --points 2000 \
   0.85) so the search favours varied tools; use `--copy-decay 1` if the player wants spam.
 
 - `--must` entries are `Name[:size][xCopies]` and always included.
+- Paid wargear named in `--loadout` (e.g. a Rupture cannon) is added to the unit's cost,
+  the same way `check_list.py` prices it. Pass one `--loadout` flag per unit.
 - Weights express the play style and the matchup — see `references/list-strategy.md`
   §§ 2–3 for presets. Explain the weights you chose in one line.
 - Characters are excluded from the search unless forced or `--include-characters`:
@@ -136,6 +153,12 @@ characters lead it), and prints the list in a clean format. Fix every
 error. Resolve warnings or explain them to the user. Never present a list that fails
 this check.
 
+Once the final list passes, store it in the player library (it refuses lists with errors):
+
+```bash
+python3 scripts/library.py save-list my_list.json
+```
+
 ## Step 7 — Measure the chosen list
 
 Run metrics on the validated list so the explanation can quote numbers (add `"loadout"`
@@ -152,7 +175,8 @@ heavy and anti-tank fire, and total OC. Use those numbers in "Why this list".
 
 The only deliverable is the chat answer: **exactly one** list. Do not offer
 alternatives. Do **not** export Excel, CSV, PDF or any other file. Scratch JSON used
-with `check_list.py` is internal; do not present those paths as the result.
+with `check_list.py` and the copy saved by `library.py` are internal; do not present
+those paths as the result (one line saying the list was saved is fine).
 
 ## Output format
 
