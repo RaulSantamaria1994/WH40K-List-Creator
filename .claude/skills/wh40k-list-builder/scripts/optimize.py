@@ -27,6 +27,12 @@ import math
 import random
 import re
 import sys
+
+for _s in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 from collections import Counter
 from pathlib import Path
 
@@ -52,9 +58,23 @@ def parse_owned(s):
         return {}
     p = Path(s)
     if p.exists():
-        raw = json.loads(p.read_text())
+        raw = json.loads(p.read_text(encoding="utf-8"))
         return {k.lower(): int(v) for k, v in raw.items()}
     return {k: int(v) for k, v in parse_kv(s, float).items()}
+
+
+def paid_wargear(unit, loadout):
+    """Points for paid options named in a --loadout (same rule as check_list: pts x count)."""
+    if not loadout:
+        return 0
+    total = 0
+    for o in unit.get("options", []):
+        if not o.get("pts") or o.get("enhancement_slot") or "name" not in o:
+            continue
+        nm = o["name"].lower()
+        n = loadout.get(nm) or next((c for w, c in loadout.items() if nm in w or w in nm), 0)
+        total += o["pts"] * n
+    return total
 
 
 def parse_must(s):
@@ -133,7 +153,8 @@ class Problem:
     def _option(self, u, size, loadout, variant=None):
         m = metrics.unit_metrics(u, size, loadout, variant)
         sc = metrics.derived(m)
-        return {"name": u["name"], "size": m["size"], "pts": m["pts"], "scores": sc, "unit": u, "variant": variant,
+        gear = paid_wargear(u, loadout)
+        return {"name": u["name"], "size": m["size"], "pts": m["pts"] + gear, "gear_pts": gear, "scores": sc, "unit": u, "variant": variant,
                 "battleline": "Battleline" in u["keywords"], "epic": "Epic Hero" in u["keywords"]}
 
     def cost(self, items):

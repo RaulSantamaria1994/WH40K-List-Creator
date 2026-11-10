@@ -28,6 +28,12 @@ import json
 import math
 import re
 import sys
+
+for _s in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

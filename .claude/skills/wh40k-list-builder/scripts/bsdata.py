@@ -27,6 +27,12 @@ import re
 import shutil
 import subprocess
 import sys
+
+for _s in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 import time
 import urllib.request
 import zipfile
@@ -124,7 +130,7 @@ def sync(force=False, max_age_hours=12):
                 _log(f"WARNING: could not update data ({e}); using cached copy")
                 return rd
             raise SystemExit(f"ERROR: could not download BSData ({e}). Check network access to github.com.")
-    stamp.write_text(time.strftime("%Y-%m-%d %H:%M:%S"))
+    stamp.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
     # compiled files depend on the data revision: invalidate them
     for f in compiled_dir().glob("*.json"):
         f.unlink()
@@ -141,7 +147,7 @@ def data_revision():
         except Exception:
             pass
     stamp = cache_dir() / "last_sync"
-    return "zip " + (stamp.read_text() if stamp.exists() else "?")
+    return "zip " + (stamp.read_text(encoding="utf-8") if stamp.exists() else "?")
 
 
 # ----------------------------------------------------------------------------
@@ -862,7 +868,7 @@ def build(faction_query, force=False):
     out = compiled_dir() / f"{slug}.json"
     if out.exists() and not force:
         try:
-            if json.loads(out.read_text()).get("compiler_version") == COMPILER_VERSION:
+            if json.loads(out.read_text(encoding="utf-8")).get("compiler_version") == COMPILER_VERSION:
                 return out
         except Exception:
             pass
@@ -915,12 +921,12 @@ def build(faction_query, force=False):
         "unassigned_enhancements": unassigned,
         "units": sorted(units, key=lambda u: u["name"]),
     }
-    out.write_text(json.dumps(data, ensure_ascii=False, indent=1))
+    out.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     return out
 
 
 def load(faction_query):
-    return json.loads(build(faction_query).read_text())
+    return json.loads(build(faction_query).read_text(encoding="utf-8"))
 
 
 # ----------------------------------------------------------------------------
