@@ -9,6 +9,7 @@ objective control per point; this file covers what they cannot see.
 3. Matchups: tuning against an opponent or the meta
 4. Synergy checklist (what the maths misses)
 5. Reading the metrics honestly
+6. Modelling rules (detachments, auras, leaders) with `--mods`
 
 ## 1. Roles every list needs
 
@@ -90,7 +91,48 @@ Run through this after the optimiser, because it only sees units in isolation:
 - Multi-weapon models (tanks, walkers, big monsters) are under-counted unless you pass
   `--loadout` with all their weapons. Do that for the units you are seriously considering.
 - Abilities and detachment rules (re-rolls, +1 to hit, mortal wounds, FNP auras) are not
-  in the numbers. Add them in your reasoning, and say so.
+  in the numbers unless you pass them with `--mods` (§ 6). Model the ones that are on
+  most of the game; add the rest in your reasoning, and say so.
 - If the user asks for "the most optimal list", be honest: you are giving the best list
   under these assumptions and the current data, plus the reasoning — tournament results
   also depend on mission, terrain and skill.
+
+## 6. Modelling rules with `--mods`
+
+`metrics.py`, `metrics.py --compare` and `optimize.py` take repeatable `--mods` specs:
+`"[KEYWORD:] token; token"`. The optional `KEYWORD:` limits a spec to units with that
+keyword (`MONSTER:`, `TYRANIDS:`, `KHORNE:`, a unit name…). Tokens:
+
+| Token | Effect |
+|---|---|
+| `hit+1`, `wound+1` | modifier to the roll (total capped at +1/-1 like the real rules) |
+| `ap+1`, `dmg+1`, `attacks+1` | improve the weapon characteristic |
+| `lethal`, `sustained1`, `dev`, `crit5` | Lethal Hits, Sustained Hits X, Devastating Wounds, critical hits on 5+ |
+| `reroll_hit1`, `reroll_hit`, `reroll_wound1`, `reroll_wound` | re-roll 1s / re-roll every failure |
+| `oc+2`, `fnp5`, `dr1`, `invuln4` | unit side: OC per model, Feel No Pain, -1 Damage taken, invulnerable save |
+
+Add `@filters` to a token to limit it to `ranged` / `melee` weapons and/or target
+keywords (`infantry`, `vehicle`, `monster`): `lethal@vehicle,monster`, `ap+1@melee`.
+
+In a list JSON, `"mods"` at list level applies to matching units and `"mods"` on a unit
+entry applies to that unit only (e.g. a leader's ability on its bodyguard):
+
+```json
+{"mods": ["lethal@vehicle,monster"], "units": [
+  {"name": "Zoanthropes", "models": 3, "mods": "hit+1"}]}
+```
+
+Translating rules (examples):
+
+| Rule | Spec |
+|---|---|
+| Tyranids Invasion Fleet — Hyper-aggression | `lethal@vehicle,monster` |
+| Tyranids Invasion Fleet — Swarming Instincts | `sustained1@infantry` |
+| Tyranids Crusher Stampede — Enraged Behemoths (fresh) | `MONSTER: oc+2` (the +1 hit/wound only once damaged) |
+| Neurotyrant Node Lash on the unit it leads | unit entry `"mods": "hit+1"` |
+| Veterans of the Long War — Focus of Hatred on the main target | `reroll_hit` (one enemy unit per turn: say so) |
+| Winged Tyranid Prime leading Warriors | unit entry `"mods": "sustained1"` |
+
+Only model what is active most of the game against the relevant targets. When a rule is
+conditional (one target per turn, below half strength, a once-per-battle choice), use it
+to compare options but say in the answer which numbers include it.
