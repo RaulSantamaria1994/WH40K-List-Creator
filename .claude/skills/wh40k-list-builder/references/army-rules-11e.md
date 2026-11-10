@@ -45,6 +45,8 @@ costs 10 more, so the second-best option is now better value").
 
 - Enhancements come from the chosen detachments only. Count limit per battle size above.
 - Epic Heroes cannot take Enhancements.
+- When a Leader and a Support character are attached to the same unit, only **one** of
+  them can have an Enhancement, never both.
 - **Upgrade** enhancements (data shows `max_in_army` > 1, typically 3) go on non-Character
   units; up to three copies use a single Enhancement slot but each copy is paid.
 - Text such as "NECRONS model only" / "CRYPTEK model only" is the real restriction — read it.
