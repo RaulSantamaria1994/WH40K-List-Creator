@@ -32,6 +32,12 @@ import argparse
 import json
 import re
 import sys
+
+for _s in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -42,6 +48,96 @@ DISPOSITIONS = {"Take and Hold", "Disruption", "Purge the Foe", "Priority Assets
 # Unit Limit by battle size (doubled for BATTLELINE). Onslaught is not confirmed in
 # public previews; 3 is assumed - say so to the user if it matters.
 UNIT_LIMIT = {"Incursion": 2, "Strike Force": 3, "Onslaught": 3}
+
+
+def _norm(s):
+    s = re.sub(r"[‐‑‒–—]", "-", s.lower())
+    return re.sub(r"\s+", " ", re.sub(r"[*^]", "", s)).strip()
+
+
+def _singular(w):
+    return w[:-1] if w.endswith("s") and not w.endswith("ss") else w
+
+
+def enhancement_restriction(text):
+    """Parse the 'X model only' prefix of an enhancement text.
+
+    Returns (alternatives, excluded) where alternatives is a list of keyword
+    phrases (any one must match) and excluded is a list of keyword phrases the
+    bearer must not have; or None when the text has no such restriction.
+    """
+    if not text:
+        return None
+    m = re.match(r"\s*(.{1,160}?)\bonly\b", text)
+    if not m or not re.search(r"[*^]|[A-Z]{3,}", m.group(1)):
+        return None
+    prefix = m.group(1)
+    # "(excluding X models)" can sit before or right after "only"
+    tail = re.match(r"\s*\(excluding[^)]*\)", text[m.end():])
+    scope = prefix + (tail.group(0) if tail else "")
+    excluded = [_norm(x) for x in re.findall(r"excluding\s+([^)]*)\)", scope)]
+    prefix = re.sub(r"\(excluding[^)]*\)", " ", prefix)
+    prefix = re.sub(r"with the .*? ability", " ", prefix)
+    phrase = _norm(re.sub(r"\bmodels?\b", " ", prefix))
+    if not phrase:
+        return None
+    alts = [a.strip() for a in phrase.split("/") if a.strip()]
+    excluded = [_norm(re.sub(r"\bmodels?\b", " ", e)) for e in excluded]
+    return alts, excluded
+
+
+def _phrase_matches(phrase, kws):
+    """Consume the phrase greedily with the unit's keywords (longest first).
+
+    Returns (matched, leftover_words)."""
+    words = phrase.split()
+    i, left = 0, []
+    while i < len(words):
+        for j in range(len(words), i, -1):
+            cand = " ".join(words[i:j])
+            if cand in kws or _singular(cand) in kws:
+                i = j
+                break
+        else:
+            left.append(words[i])
+            i += 1
+    return not left, left
+
+
+def _unit_kws(unit):
+    return {_norm(k) for k in unit["keywords"] + unit.get("faction_keywords", []) + [unit["name"]]}
+
+
+def check_enhancement_bearer(unit, enh, faction_keywords, faction_units=()):
+    """Returns (error, warning) for an enhancement's 'X model only' restriction.
+
+    If no unit of the faction meets the restriction in the data, the keyword must
+    come from a rule (e.g. a detachment granting CHARACTER), so it only warns."""
+    r = enhancement_restriction(enh.get("text"))
+    if not r:
+        return None, None
+    alts, excluded = r
+    kws = _unit_kws(unit)
+    unknown = []
+    for alt in alts:
+        ok, left = _phrase_matches(alt, kws)
+        if ok:
+            break
+        # the phrase is made of real keywords of this faction -> the unit just lacks them
+        if not _phrase_matches(alt, faction_keywords)[0]:
+            unknown.append(alt)
+    else:
+        if unknown:
+            return None, f"{enh['name']} on {unit['name']}: could not verify the restriction '{' / '.join(alts)}' — check it"
+        need = " / ".join(a.upper() for a in alts)
+        if faction_units and not any(_phrase_matches(a, _unit_kws(x))[0] for x in faction_units for a in alts):
+            return None, (f"{enh['name']} on {unit['name']}: no datasheet has the keywords {need}; they must come "
+                          "from a rule (e.g. the detachment) — check the bearer qualifies")
+        return f"{unit['name']} cannot take {enh['name']}: it is restricted to {' / '.join(a.upper() for a in alts)} models", None
+    for ex in excluded:
+        if _phrase_matches(ex, kws)[0]:
+            return f"{unit['name']} cannot take {enh['name']}: {ex.upper()} models are excluded", None
+    return None, None
 
 
 def norm_size(s):
@@ -136,6 +232,8 @@ def check(spec):
         errors.append(f"Force Disposition '{disp}' is not granted by the chosen detachments ({', '.join(dispositions)})")
     if not disp and len(dispositions) > 1:
         warnings.append(f"Choose one Force Disposition: {', '.join(dispositions)}")
+    faction_kws = {_norm(k) for x in d["units"] for k in x["keywords"] + x.get("faction_keywords", []) + [x["name"]]}
+    chosen_names = {x["name"].lower() for x in chosen}
     allowed_enh = {}
     for det in chosen:
         for e in det["enhancements"]:
@@ -175,6 +273,12 @@ def check(spec):
                 enh_name = e["name"]
                 if e["units"] and u["name"] not in e["units"]:
                     errors.append(f"{u['name']} cannot take enhancement {e['name']}")
+                elif dn != "datasheet":
+                    err, warn = check_enhancement_bearer(u, e, faction_kws, d["units"])
+                    if err:
+                        errors.append(err)
+                    if warn:
+                        warnings.append(warn)
                 is_upgrade = (e.get("max_in_army") or 1) > 1 or "upgrade" in (e.get("text") or "").lower()
                 if dn != "datasheet" and not is_upgrade and "Character" not in u["keywords"]:
                     warnings.append(f"{e['name']} on {u['name']}: only Upgrade enhancements go on non-CHARACTER units; "
@@ -188,7 +292,21 @@ def check(spec):
             gear_pts -= next(o["pts"] for o in u["options"] if o.get("name") == enh_name)
             enh_pts = next(o["pts"] for o in u["options"] if o.get("name") == enh_name)
             allowed_enh.setdefault(enh_name.lower(), ({"name": enh_name, "pts": enh_pts, "units": [], "max_in_army": 1}, "datasheet"))
-        paid = sorted({o["name"] for o in u.get("options", []) if o.get("pts") and o["name"] not in gear_names})
+        # datasheet upgrades tied to a detachment ("<Detachment> Enhancements" groups)
+        for o in u.get("options", []):
+            if o.get("enhancement_slot") and o.get("name") in gear_names | {enh_name}:
+                grp = next((g["group"] for g in u["options"] if o["name"] in g.get("choices", [])), "")
+                det_name = re.sub(r"\s*Enhancements$", "", grp).strip().lower()
+                if det_name and det_name in dets_by_name and det_name not in chosen_names:
+                    errors.append(f"{u['name']}: {o['name']} needs the {grp.replace(' Enhancements', '')} detachment")
+        # paid options worth a reminder: skip enhancement-slot upgrades (optional) and
+        # alternatives in a pick-one group where another choice is already named
+        wtext = (entry.get("wargear") or "").lower()
+        taken_groups = {g["group"] for g in u.get("options", []) if g.get("choices") and g.get("max") == 1
+                        and any(c.lower() in wtext for c in g["choices"])}
+        paid = sorted({o["name"] for o in u.get("options", []) if o.get("pts") and o["name"] not in gear_names
+                       and not o.get("enhancement_slot")
+                       and not any(o["name"] in g.get("choices", []) and g["group"] in taken_groups for g in u["options"])})
         if paid:
             warnings.append(f"{u['name']}: paid options not in its wargear text: " + ", ".join(
                 f"{n} (+{next(o['pts'] for o in u['options'] if o.get('name') == n)})" for n in paid))

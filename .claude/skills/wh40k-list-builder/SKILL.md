@@ -17,7 +17,8 @@ player wants**, and **explained**. Strength comes from two sources that you comb
 Never invent points, stats or rules: everything about units comes from the scripts. If
 data looks wrong, say so rather than silently fixing it.
 
-All scripts live in `scripts/` next to this file. Run them with `python3`. They need
+All scripts live in `scripts/` next to this file. Run them with `python3` (on Windows the
+command is usually `python`; the examples below use `python3`). They need
 network access to github.com the first time (data is cached in `~/.cache/wh40k-11e`,
 refreshed every 12 h). Faction names are matched loosely ("necrons", "blood angels",
 "guard", "tau", "craftworlds"…).
@@ -93,6 +94,8 @@ python3 scripts/optimize.py "<faction>" --points 2000 \
   0.85) so the search favours varied tools; use `--copy-decay 1` if the player wants spam.
 
 - `--must` entries are `Name[:size][xCopies]` and always included.
+- Paid wargear named in `--loadout` (e.g. a Rupture cannon) is added to the unit's cost,
+  the same way `check_list.py` prices it. Pass one `--loadout` flag per unit.
 - Weights express the play style and the matchup — see `references/list-strategy.md`
   §§ 2–3 for presets. Explain the weights you chose in one line.
 - Characters are excluded from the search unless forced or `--include-characters`:
