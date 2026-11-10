@@ -17,7 +17,7 @@ Usage:
   optimize.py <faction> --points 2000 [--battle-size "Strike Force"]
       [--weights "horde=1,elite=1,tank=1,durability=1,oc=0.5,move=0"]
       [--must "Overlord,Lychguard:10,Necron Warriors:20x2"]
-      [--only "A,B,C"] [--exclude "A,B"] [--owned "Necron Warriors=40,Immortals=10" | --owned owned.json]
+      [--only "A,B,C"] [--exclude "A,B"] [--owned "Necron Warriors=40,Immortals=10" | --owned owned.json | --owned saved]
       [--loadout "Unit=3xWeapon,..."] [--include-characters] [--allies] [--legends]
       [--copy-decay 0.85] [--top 3] [--seed 1] [--iterations 400] [--json]
 """
@@ -53,13 +53,20 @@ def parse_kv(s, cast=float):
     return out
 
 
-def parse_owned(s):
+def parse_owned(s, faction=None):
     if not s:
         return {}
+    if s.strip().lower() == "saved":
+        import library
+        owned = library.owned_map(faction)
+        if owned is None:
+            raise SystemExit(f"--owned saved: no saved collection for '{faction}' (library.py collection-set)")
+        return owned
     p = Path(s)
     if p.exists():
         raw = json.loads(p.read_text(encoding="utf-8"))
-        return {k.lower(): int(v) for k, v in raw.items()}
+        raw = raw.get("units", raw)  # library collection files wrap the map in "units"
+        return {k.lower(): int(v) for k, v in raw.items() if not k.startswith("_")}
     return {k: int(v) for k, v in parse_kv(s, float).items()}
 
 
@@ -104,7 +111,7 @@ class Problem:
         self.weights = {c: 0.0 for c in CATS}
         self.weights.update({"horde": 1, "elite": 1, "tank": 1, "durability": 1, "oc": 0.5})
         self.weights.update(parse_kv(a.weights))
-        self.owned = parse_owned(a.owned)
+        self.owned = parse_owned(a.owned, a.faction)
         self.copy_decay = a.copy_decay
         self.limit = UNIT_LIMIT.get(a.battle_size, 3)
         loadouts = {}
