@@ -1,6 +1,7 @@
 ---
 name: wh40k-list-builder
 description: Build the strongest legal Warhammer 40,000 (11th edition) army list from live BSData plus mathhammer and an optimiser; one list on screen only. Use whenever someone wants to create, optimise, improve, compare or check a 40k list or asks about unit value per point or detachment fit — e.g. "hazme una lista de necrones a 2000", "best list with what I own", "is this list legal" — even if they only mention a faction, points, units or their collection.
+compatibility: Needs a shell to run Python 3.9+ scripts (standard library only) and internet access to github.com the first time. Works with any model or agent that can run commands.
 ---
 
 # Warhammer 40k 11th edition list builder
@@ -12,8 +13,15 @@ or rules; if data looks wrong, say so.
 
 **Token budget:** run each command once, print only what you ask for (use filters), batch
 independent commands in ONE shell call, and read `references/` only when a step says so.
-Scripts are in `scripts/` (`python` on Windows, `python3` elsewhere); they download and
-cache data automatically (12 h). Faction names match loosely ("necrons", "guard", "tau").
+Scripts are in `scripts/` and `references/` is next to it, both **relative to the folder
+containing this SKILL.md** (run commands from there or use the full path; `python` on
+Windows, `python3` elsewhere); they download and cache data automatically (12 h; needs
+internet to github.com the first time).
+
+**No shell or no internet** (plain chat, sandbox without network): you cannot build a legal
+list from memory. Say so, give the user the exact commands of steps 2–6 to run themselves
+(Python 3.9+), ask them to paste the output and continue from it. Never state points,
+stats or legality as fact without script output. Faction names match loosely ("necrons", "guard", "tau").
 
 ## 1. Inputs
 Ask only what you cannot infer, in one short message, in the user's language. Only the
@@ -64,10 +72,9 @@ only their best gun unless `--loadout` lists all weapons. Averages, no buffs unl
 ## 5. Search
 Pick characters and the core first, then let the optimiser fill the rest:
 ```bash
-python scripts/optimize.py "<faction>" --points 2000 --must "Overlord,Lychguard:10,Necron Warriors:20x2" \
-  --weights "horde=1,elite=1,tank=1.5,durability=1,oc=0.5,move=0" [--owned "Unit=models,..."|saved] \
-  [--only "A,B"] [--exclude "C"] [--loadout "Unit=..."] [--mods "..."] [--copy-decay 1]
+python scripts/optimize.py "<faction>" --points 2000 --must "Overlord,Lychguard:10,Necron Warriors:20x2" --weights "horde=1,elite=1,tank=1.5,durability=1,oc=0.5,move=0" [--owned "Unit=models,..."|saved] [--only "A,B"] [--exclude "C"] [--loadout "Unit=..."] [--mods "..."] [--copy-decay 1]
 ```
+(One line, no `\` continuations: they break in PowerShell.)
 `--must` = `Name[:size][xCopies]`; characters are only included if forced. Paid wargear in
 `--loadout` is priced in; `[variant]` tags show the assumed weapon option. It prints one
 draft (`--top N` for more): fix it with the checklist and re-run with other
