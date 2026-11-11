@@ -1,6 +1,6 @@
 # WH40K List Creator
 
-Skill de Claude para crear **listas de ejército de Warhammer 40,000 (11ª edición)** legales y
+Skill de agente (Claude Code, Cursor, Gemini CLI y Codex / ChatGPT) para crear **listas de ejército de Warhammer 40,000 (11ª edición)** legales y
 optimizadas según lo que necesita el jugador: facción, puntos, miniaturas que tiene, estilo de
 juego y rival. Usa los datos de la comunidad [BSData/wh40k-11e](https://github.com/BSData/wh40k-11e)
 (puntos, datasheets, armas, destacamentos y mejoras), cálculos de daño esperado (mathhammer) y un
@@ -51,26 +51,76 @@ TOTAL: 1995 / 2000 pts  —  data: BSData wh40k-11e 8e52807 2026-11-09
 
 ## Instalación
 
-### En Claude Code (este repositorio)
+La skill sigue el estándar abierto [Agent Skills](https://agentskills.io/) (`SKILL.md` + `scripts/`
++ `references/`). Cada herramienta la busca en una carpeta distinta, así que el repositorio trae
+dos copias idénticas:
 
-La skill está en `.claude/skills/wh40k-list-builder/`, así que Claude Code la detecta sola al
-trabajar dentro de este repositorio. Clona el repo y abre Claude Code en la carpeta:
+| Herramienta | Lee la skill de | Dentro de este repo |
+|---|---|---|
+| Claude Code | `.claude/skills/` · `~/.claude/skills/` | automático |
+| Cursor | `.agents/skills/` · `.cursor/skills/` · `.claude/skills/` | automático |
+| Gemini CLI | `.agents/skills/` · `.gemini/skills/` | automático |
+| Codex CLI / app de ChatGPT (escritorio) | `.agents/skills/` · `~/.agents/skills/` | automático |
+
+Clona el repo y abre la herramienta que prefieras en esa carpeta:
 
 ```bash
 git clone https://github.com/RaulSantamaria1994/WH40K-List-Creator.git
 ```
 
 ```bash
-cd WH40K-List-Creator && claude
+cd WH40K-List-Creator
 ```
 
-### En tu perfil de Claude (claude.ai / Claude Code en cualquier carpeta)
+- **Claude Code:** `claude`. Pídele una lista o invoca `/wh40k-list-builder`.
+- **Cursor:** abre la carpeta; en el chat del Agent pide una lista o escribe `/wh40k-list-builder`.
+- **Gemini CLI:** `gemini`; comprueba con `gemini skills list` que aparece `wh40k-list-builder`.
+- **Codex CLI / ChatGPT escritorio:** `codex`; escribe `$wh40k-list-builder` o pide una lista directamente.
 
-Empaqueta la skill y súbela, o copia la carpeta a tus skills de usuario:
+El agente necesita permiso para ejecutar comandos (los scripts son Python) y acceso a internet
+(`github.com`) para descargar los datos la primera vez. La skill usa `python` en Windows y
+`python3` en el resto, y sus comandos van en una sola línea para que funcionen en PowerShell,
+bash y zsh.
+
+### Disponible en cualquier carpeta (nivel usuario)
+
+Copia la carpeta a las skills de usuario de la herramienta (basta con una de las rutas
+`~/.agents/skills/` para Cursor, Gemini CLI y Codex):
 
 ```bash
-cp -r .claude/skills/wh40k-list-builder ~/.claude/skills/
+cp -r .agents/skills/wh40k-list-builder ~/.agents/skills/
+cp -r .agents/skills/wh40k-list-builder ~/.claude/skills/
 ```
+
+En Windows (PowerShell): `Copy-Item -Recurse .agents\skills\wh40k-list-builder $HOME\.agents\skills\`.
+En claude.ai se sube la carpeta empaquetada en zip como skill personalizada.
+
+### Cualquier otro modelo o agente
+
+La skill no depende de ningún modelo: todas las cifras salen de los scripts (Python estándar) y
+las instrucciones (`SKILL.md`) no usan herramientas ni sintaxis propias de un proveedor. Sirve
+con cualquier modelo que pueda ejecutar comandos de shell:
+
+- **Agentes que ya soportan Agent Skills** (Claude Code, Cursor, Gemini CLI, Codex, y otros que
+  lean `.agents/skills/`): no hay que hacer nada.
+- **Otros agentes o frameworks** (OpenAI Agents SDK, LangChain, Aider, Cline, un agente propio…):
+  copia `.agents/skills/wh40k-list-builder/` a tu entorno, dale al modelo un `SKILL.md` como
+  instrucciones y una herramienta que ejecute comandos de shell en esa carpeta.
+- **Chats web sin ejecución de código o sin red** (ChatGPT, Gemini, claude.ai): no pueden
+  descargar BSData ni ejecutar los scripts. La skill le indica al modelo que no invente
+  números y que te pase los comandos para que los ejecutes tú (Python 3.9+) y le pegues la
+  salida; funciona, pero es manual.
+
+### Mantenimiento: una sola fuente
+
+La fuente canónica es `.agents/skills/wh40k-list-builder/`. La de `.claude/skills/` es una copia
+generada (git en Windows no sigue symlinks de forma fiable). Tras editar la skill:
+
+```bash
+python tools/sync_skill.py
+```
+
+`python tools/sync_skill.py --check` falla si la copia está desactualizada.
 
 ### Requisitos
 
@@ -80,8 +130,8 @@ cp -r .claude/skills/wh40k-list-builder ~/.claude/skills/
 
 ## Uso directo de los scripts
 
-Todos los scripts están en `.claude/skills/wh40k-list-builder/scripts/` y se pueden usar sin
-Claude. Los nombres de facción se buscan de forma flexible (`necrons`, `blood angels`, `guard`,
+Todos los scripts están en `.agents/skills/wh40k-list-builder/scripts/` y se pueden usar sin
+ningún agente. Los nombres de facción se buscan de forma flexible (`necrons`, `blood angels`, `guard`,
 `tau`, `"Space Marines (Ultramarines)"`…).
 
 | Script | Para qué |
@@ -95,7 +145,7 @@ Claude. Los nombres de facción se buscan de forma flexible (`necrons`, `blood a
 En Windows el comando suele ser `python` en lugar de `python3`.
 
 ```bash
-cd .claude/skills/wh40k-list-builder
+cd .agents/skills/wh40k-list-builder
 ```
 
 ```bash
@@ -169,7 +219,7 @@ la colección que le das, y las reutiliza cuando le pides cambiar "la lista que 
 Además: recargo de puntos por copias repetidas de un datasheet, etiquetas únicas de destacamento,
 Force Disposition, un Leader y un Support por unidad (Support siempre adjunto), mejoras tipo
 Upgrade en unidades no personaje, Epic Heroes únicos y sin mejoras. Detalle en
-[`references/army-rules-11e.md`](.claude/skills/wh40k-list-builder/references/army-rules-11e.md).
+[`references/army-rules-11e.md`](.agents/skills/wh40k-list-builder/references/army-rules-11e.md).
 
 ## Limitaciones
 
@@ -190,8 +240,11 @@ Upgrade en unidades no personaje, Epic Heroes únicos y sin mejoras. Detalle en
 ## Estructura
 
 ```
-.claude/skills/wh40k-list-builder/
-├── SKILL.md                      # flujo de trabajo que sigue Claude
+AGENTS.md / CLAUDE.md             # guía para agentes que editan este repo
+tools/sync_skill.py               # sincroniza .agents/skills -> .claude/skills
+.claude/skills/wh40k-list-builder/  # copia generada para Claude Code (no editar)
+.agents/skills/wh40k-list-builder/  # fuente canónica (Cursor, Gemini CLI, Codex)
+├── SKILL.md                      # flujo de trabajo que sigue el agente
 ├── scripts/                      # bsdata, metrics, optimize, check_list, library
 ├── references/
 │   ├── army-rules-11e.md         # reglas de construcción de ejército
@@ -205,9 +258,11 @@ Upgrade en unidades no personaje, Epic Heroes únicos y sin mejoras. Detalle en
 `evals/` contiene 3 casos (Necrones 2000 competitivo, Ultramarines 1000 con colección propia y
 estilo agresivo, Tiránidos contra Imperial Knights) con sus criterios de evaluación. En la última
 iteración la skill superó todos los criterios (100 %, frente al 76 % sin la skill), con un ~30 %
-menos de tiempo y ~20 % menos de tokens. Para ejecutarlos con Claude Code (ejecuciones reales de
-pago):
+menos de tiempo y ~20 % menos de tokens. Los casos usan el formato de `claude plugin eval` (los
+criterios en `graders/` son texto plano y se pueden reutilizar con otro modelo; el validador
+objetivo de cualquier lista es `scripts/check_list.py`). Para ejecutarlos con Claude Code
+(ejecuciones reales de pago):
 
 ```bash
-cd .claude/skills/wh40k-list-builder && claude plugin eval . --allow-tools Write,Edit,Bash
+cd .agents/skills/wh40k-list-builder && claude plugin eval . --allow-tools Write,Edit,Bash
 ```
