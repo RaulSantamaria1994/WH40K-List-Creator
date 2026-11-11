@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""Player library: saved army lists and model collections.
+"""Player library: model collections only (army lists are never saved).
 
 Lives outside any repository so personal data is never committed:
 $WH40K_HOME or ~/.wh40k
-  lists/<date>-<faction>-<points>-<title>.json    validated lists (check_list.py format)
   collections/<faction>.json                       {"faction", "units": {name: models}, "notes": [...]}
 
 Usage:
-  library.py save-list LIST.json            # validate with check_list and store it (refuses lists with errors)
-  library.py lists [--faction X] [--limit N]  # saved lists, newest first
-  library.py show <file or text>            # print a saved list (formatted) and its path
   library.py collection-set <faction> "Unit=models,..." [--note TEXT ...] [--replace]
   library.py collection <faction>           # print the saved collection and the --owned string
   library.py collections                    # factions with a saved collection
@@ -34,7 +30,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bsdata  # noqa: E402
 
 HOME = Path(os.environ.get("WH40K_HOME") or Path.home() / ".wh40k")
-LISTS = HOME / "lists"
 COLLECTIONS = HOME / "collections"
 
 
@@ -49,60 +44,6 @@ def faction_name(query):
 
 def faction_slug(query):
     return slug(faction_name(query))
-
-
-# ----------------------------------------------------------------------------
-# Lists
-# ----------------------------------------------------------------------------
-
-def save_list(path):
-    import check_list
-    spec = json.loads(Path(path).read_text(encoding="utf-8"))
-    res = check_list.check(spec)
-    d, total, pts_limit, errors = res[0], res[8], res[2], res[9]
-    if errors:
-        raise SystemExit("Not saved: the list has errors:\n  " + "\n  ".join(errors))
-    spec = {k: v for k, v in spec.items() if not k.startswith("_")}
-    spec["_saved"] = time.strftime("%Y-%m-%d %H:%M")
-    spec["_faction"] = d["faction"]
-    spec["_total"] = total
-    spec["_limit"] = pts_limit
-    spec["_data_revision"] = d.get("data_revision")
-    LISTS.mkdir(parents=True, exist_ok=True)
-    name = f"{time.strftime('%Y%m%d-%H%M%S')}-{slug(d['faction'].split(' - ')[-1])}-{pts_limit}-{slug(spec.get('title'))}.json"
-    out = LISTS / name
-    out.write_text(json.dumps(spec, ensure_ascii=False, indent=1), encoding="utf-8")
-    return out
-
-
-def saved_lists(faction=None):
-    if not LISTS.exists():
-        return []
-    fname = faction_name(faction) if faction else None
-    rows = []
-    for p in sorted(LISTS.glob("*.json"), reverse=True):
-        try:
-            s = json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if fname and s.get("_faction") != fname:
-            continue
-        rows.append((p, s))
-    return rows
-
-
-def find_list(query):
-    p = Path(query)
-    if p.exists():
-        return p
-    for cand in (LISTS / query, LISTS / f"{query}.json"):
-        if cand.exists():
-            return cand
-    q = query.lower()
-    hits = [p for p, s in saved_lists() if q in p.name.lower() or q in (s.get("title") or "").lower()]
-    if not hits:
-        raise SystemExit(f"No saved list matches '{query}'")
-    return hits[0]  # newest
 
 
 # ----------------------------------------------------------------------------
@@ -173,32 +114,13 @@ def owned_string(c):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sp = ap.add_subparsers(dest="cmd", required=True)
-    s = sp.add_parser("save-list"); s.add_argument("file")
-    s = sp.add_parser("lists"); s.add_argument("--faction"); s.add_argument("--limit", type=int, default=20)
-    s = sp.add_parser("show"); s.add_argument("query")
     s = sp.add_parser("collection-set"); s.add_argument("faction"); s.add_argument("units")
     s.add_argument("--note", action="append", default=[]); s.add_argument("--replace", action="store_true")
     s = sp.add_parser("collection"); s.add_argument("faction")
     sp.add_parser("collections")
     a = ap.parse_args()
 
-    if a.cmd == "save-list":
-        print(f"Saved: {save_list(a.file)}")
-    elif a.cmd == "lists":
-        rows = saved_lists(a.faction)[: a.limit]
-        if not rows:
-            print(f"No saved lists in {LISTS}")
-        for p, s in rows:
-            print(f"{s.get('_saved', '?')} | {s.get('_faction', s.get('faction'))} | {s.get('battle_size')} "
-                  f"{s.get('_total')}/{s.get('_limit')} | {', '.join(s.get('detachments', []))} | "
-                  f"{s.get('title') or '-'} | {p}")
-    elif a.cmd == "show":
-        import check_list
-        p = find_list(a.query)
-        spec = json.loads(p.read_text(encoding="utf-8"))
-        print(f"File: {p}  (saved {spec.get('_saved', '?')})\n")
-        print(check_list.render(spec, check_list.check(spec)))
-    elif a.cmd == "collection-set":
+    if a.cmd == "collection-set":
         p, c = set_collection(a.faction, a.units, a.note, a.replace)
         print(f"Saved: {p}")
         print(json.dumps(c, ensure_ascii=False, indent=1))

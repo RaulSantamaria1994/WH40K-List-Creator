@@ -35,14 +35,14 @@ or give the models per type explicitly:
 Output: the formatted list plus a list of problems (errors and warnings).
 Exit code 1 if there are errors.
 
-Usage:  check_list.py list.json [--json]
+Usage:  check_list.py list.json|- [--json] [--metrics [--mods SPEC]]   ('-' reads the list from stdin)
 """
 import argparse
 import json
 import re
 import sys
 
-for _s in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252
+for _s in (sys.stdin, sys.stdout, sys.stderr):  # Windows consoles default to cp1252
     try:
         _s.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
@@ -607,6 +607,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("file")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--metrics", action="store_true", help="also print the army totals (metrics.py --compare) if the list is legal")
+    ap.add_argument("--mods", action="append", default=[], help="with --metrics: rule modifiers, as in metrics.py")
     a = ap.parse_args()
     spec = json.load(sys.stdin if a.file == "-" else open(a.file, encoding="utf-8"))
     res = check(spec)
@@ -617,6 +619,10 @@ def main():
                           "units": [{"name": r["unit"]["name"], "models": r["models"], "cost": r["cost"]} for r in rows]}, indent=1))
     else:
         print(render(spec, res))
+    if a.metrics and not res[9]:
+        import metrics
+        print()
+        metrics.compare_specs([(spec, "-")], 0.7, a.mods)
     sys.exit(1 if res[9] else 0)
 
 

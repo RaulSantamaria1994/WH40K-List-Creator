@@ -32,8 +32,7 @@ whole range · balanced all-comers · no allies, no Legends. State the defaults 
 - Collection given → `library.py collection-set "<faction>" "Unit=models,..." [--note "..."]`
   (adds; `--replace` overwrites; `Unit=0` removes); note name-mapping assumptions.
   None given → `library.py collection "<faction>"`; if saved, use `--owned saved` and say so.
-- Earlier list mentioned → `library.py lists [--faction X]` then `library.py show <words>`
-  (newest if several match; say which).
+- Lists are **never saved**. If the user mentions an earlier list, ask them to paste it.
 
 ## 2. Data
 ```bash
@@ -97,7 +96,10 @@ objectives, cheap action units, durable anchor); ≤ 25 pts left; sensible Warlo
 and matchups in depth: `references/list-strategy.md` (optional).
 
 ## 6. Validate (mandatory)
-Write the list as JSON in a scratch directory, run `python scripts/check_list.py my_list.json`:
+Pass the list as JSON on **stdin** (`-`); never write it to a file (not in the skill folder,
+not in a temp dir, not in `~/.wh40k`). Bash: `python scripts/check_list.py - --metrics <<'EOF'`
+then the JSON and `EOF`. PowerShell: `@'` + JSON + `'@ | python scripts/check_list.py - --metrics`.
+`--metrics` adds the army totals row if the list is legal (add `--mods "..."` if you used mods).
 
 ```json
 {"title": "Main - Awakened Dynasty", "faction": "necrons", "battle_size": "Strike Force",
@@ -115,12 +117,11 @@ Write the list as JSON in a scratch directory, run `python scripts/check_list.py
   attachments, and prints the list. Fix every error; resolve or explain warnings. Never
   show a list that fails.
 
-When it passes: `python scripts/library.py save-list my_list.json`, then
-`python scripts/metrics.py --compare my_list.json [--mods "..."]` for the numbers you
-quote (units, models, anti-horde/elite/tank, durability, OC); say which include mods.
+When it passes, quote the `--metrics` numbers (units, models, anti-horde/elite/tank,
+durability, OC); say which include mods.
 
 ## 7. Answer: one list, on screen only
-No alternatives, no Excel/CSV/PDF/files (one line saying it was saved is fine). User's
+No alternatives, no Excel/CSV/PDF/files: the list is never saved anywhere. User's
 language; unit/weapon/detachment/enhancement names stay in English. Everything after the
 list block: ~250–350 words.
 
