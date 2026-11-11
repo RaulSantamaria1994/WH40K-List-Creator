@@ -169,20 +169,17 @@ python3 scripts/optimize.py necrons --points 2000 --must "Overlord,Lychguard:10"
 ```
 
 ```bash
-python3 scripts/check_list.py mi_lista.json
+python3 scripts/check_list.py mi_lista.json --metrics
 ```
 
 ```bash
 python3 scripts/library.py collection-set tyranids "Termagants=30,Hive Guard=3,Tyrannofex=1"
 python3 scripts/optimize.py tyranids --points 1000 --owned saved
-python3 scripts/library.py save-list mi_lista.json
-python3 scripts/library.py lists --faction tyranids
-python3 scripts/library.py show "nombre de la lista"
 ```
 
-La biblioteca vive en `~/.wh40k` (o en `$WH40K_HOME`), no dentro del repositorio, para que
-tus listas y tu colección no se suban a GitHub. Claude guarda ahí cada lista que valida y
-la colección que le das, y las reutiliza cuando le pides cambiar "la lista que me diste".
+La colección vive en `~/.wh40k` (o en `$WH40K_HOME`), no dentro del repositorio, para que
+no se suba a GitHub. Las listas **nunca se guardan**: Claude las valida pasándolas por stdin
+y solo las muestra por pantalla.
 
 ### Formato de lista (JSON)
 

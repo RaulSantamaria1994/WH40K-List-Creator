@@ -37,7 +37,7 @@ import math
 import re
 import sys
 
-for _s in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252
+for _s in (sys.stdin, sys.stdout, sys.stderr):  # Windows consoles default to cp1252
     try:
         _s.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
@@ -544,12 +544,16 @@ def list_totals(spec, melee_weight=0.7, extra_mods=None):
 
 
 def compare(files, melee_weight, extra_mods=None):
+    specs = [(json.load(sys.stdin if f == "-" else open(f, encoding="utf-8")), f) for f in files]
+    compare_specs(specs, melee_weight, extra_mods)
+
+
+def compare_specs(specs, melee_weight, extra_mods=None):
     print("Expected damage per turn (ranged + discounted melee) vs reference targets; durability = attacks needed to wipe the whole army")
     print("list | pts (no enh/surcharge) | units | models | anti-horde | anti-elite | anti-tank | dur vs heavy | dur vs AT | OC")
-    for f in files:
-        spec = json.load(open(f, encoding="utf-8"))
+    for spec, f in specs:
         t = list_totals(spec, melee_weight, extra_mods)
-        name = spec.get("title") or Path(f).stem
+        name = spec.get("title") or (Path(f).stem if f != "-" else "list")
         print(f"{name} | {t['pts']} | {t['units']} | {t['models']} | {t['horde']:.1f} | {t['elite']:.1f} | {t['tank']:.1f} | "
               f"{t['durability_heavy']:.0f} | {t['durability_at']:.0f} | {t['oc']:.0f}")
 
