@@ -1096,7 +1096,7 @@ def stat_str(p):
 def cmd_units(a):
     d = load(a.faction)
     print(f"# {d['faction']}  (data {d['data_revision']})")
-    print("name | role | models | pts | M T Sv W OC | limits | keywords   (limits: max copies; #N+:+X = surcharge from copy N; keywords omit Infantry/Character)")
+    print("name | role | models | pts | M T Sv W OC | limits (maxN copies; #N+:+X = +X pts from copy N) | keywords")
     for u in d["units"]:
         if u["hidden"] and not a.legends:
             continue
@@ -1119,7 +1119,8 @@ def cmd_units(a):
         skip = {u["name"], "Infantry", "Character"}
         kw = ",".join(k for k in u["keywords"] if k not in skip)[:60]
         tag = f" [ally:{u['ally']}]" if u["ally"] else ""
-        print(f"{u['name']}{tag} | {u['role']} | {u['models']['min']}-{u['models']['max']} | {pts_str(u)} | {st} | {lim} | {kw}")
+        role = "" if u["role"] == "Other" else u["role"]
+        print(f"{u['name']}{tag} | {role} | {u['models']['min']}-{u['models']['max']} | {pts_str(u)} | {st} | {lim} | {kw}")
 
 
 def cmd_unit(a):
@@ -1144,6 +1145,8 @@ def cmd_unit(a):
                 skill = wpn.get("BS") or wpn.get("WS")
                 print(f"  W {wpn['type']:6} {wpn['name']}: R{wpn.get('Range','')} A{wpn.get('A')} {'BS' if wpn['type']=='ranged' else 'WS'}{skill} S{wpn.get('S')} AP{wpn.get('AP')} D{wpn.get('D')} [{wpn.get('Keywords','')}]  ({', '.join(wpn['carried_by'])})")
             for k, v in u["abilities"].items():
+                if k == "Leader" and u["leader_of"]:
+                    continue  # "Leads:" below already lists the bodyguards
                 print(f"  A {k}: {v}")
             if u["core_rules"]:
                 print("  Core: " + ", ".join(u["core_rules"]))
@@ -1226,7 +1229,8 @@ def cmd_detachments(a):
     d = load(a.faction)
     lim = d["limits"]
     print(f"# Detachments for {d['faction']}  (data {d['data_revision']})")
-    print(f"Detachment Points by battle size: {lim['detachment_points']}; enhancements: {lim['enhancements']}; " + "; ".join(lim["notes"]))
+    if a.full:  # limits per battle size are in SKILL.md and enforced by check_list.py
+        print(f"Detachment Points by battle size: {lim['detachment_points']}; enhancements: {lim['enhancements']}; " + "; ".join(lim["notes"]))
     only = [w.strip().lower() for w in (a.only or "").split(",") if w.strip()]
     for det in d["detachments"]:
         if only and not any(w in det["name"].lower() for w in only):
