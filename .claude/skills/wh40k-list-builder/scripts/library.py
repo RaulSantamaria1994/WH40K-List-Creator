@@ -89,7 +89,11 @@ def set_collection(faction, spec, notes=(), replace=False):
             else:
                 problems.append(f"'{k}': " + (f"ambiguous ({', '.join(sub[:5])})" if sub else "no such datasheet"))
                 continue
-        n = int(v)
+        try:
+            n = int(v)
+        except ValueError:
+            problems.append(f"'{part.strip()}': models must be a whole number")
+            continue
         if n <= 0:
             have.pop(name, None)
         else:
@@ -98,11 +102,20 @@ def set_collection(faction, spec, notes=(), replace=False):
         raise SystemExit("Collection not saved:\n  " + "\n  ".join(problems))
     out = {"faction": d["faction"], "updated": time.strftime("%Y-%m-%d %H:%M"),
            "units": dict(sorted(have.items())),
-           "notes": list(dict.fromkeys(list(cur.get("notes", [])) + list(notes)))}
+           "notes": [n for n in dict.fromkeys(clean_note(n) for n in list(cur.get("notes", [])) + list(notes)) if n][-MAX_NOTES:]}
     COLLECTIONS.mkdir(parents=True, exist_ok=True)
     p = collection_path(faction)
     p.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     return p, out
+
+
+MAX_NOTES, MAX_NOTE_LEN = 20, 200
+
+
+def clean_note(text):
+    """Notes are re-read by the agent in later sessions: keep them short, plain and inert."""
+    t = re.sub(r"\s+", " ", bsdata.sanitize_text(str(text))[0]).strip()
+    return t[:MAX_NOTE_LEN]
 
 
 def owned_string(c):
@@ -133,7 +146,7 @@ def main():
         for k, v in c["units"].items():
             print(f"  {k}: {v}")
         for n in c.get("notes", []):
-            print(f"  note: {n}")
+            print(f"  note: {clean_note(n)}")  # the file lives in the user's home and could have been edited
         print(f"\n--owned \"{owned_string(c)}\"   (or: --owned saved)")
     elif a.cmd == "collections":
         if not COLLECTIONS.exists() or not any(COLLECTIONS.glob("*.json")):
