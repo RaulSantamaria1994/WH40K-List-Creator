@@ -406,6 +406,15 @@ def pick_size(unit, size=None):
     return t["best_size"], t["pts"]
 
 
+def legal_size(unit, size):
+    """True if `size` models is a purchasable size of the unit."""
+    for t in unit["points"]:
+        lo, _, hi = t["models"].partition("-")
+        if int(lo) <= size <= int(hi or lo):
+            return True
+    return False
+
+
 def unit_metrics(unit, size=None, loadout=None, prefer=None, mods=None):
     """mods: list of parsed modifiers (see parse_mods / mods_for_unit) already filtered for this unit."""
     size, pts = pick_size(unit, size)
@@ -427,10 +436,11 @@ def unit_metrics(unit, size=None, loadout=None, prefer=None, mods=None):
     firing = []
     if loadout:
         for wname, n in loadout.items():
-            w = next((x for x in weapons if x["name"].lower() == wname), None) or \
-                next((x for x in weapons if wname in x["name"].lower()), None)
-            if w:
-                firing.append((w, n))
+            # all profiles sharing the matched name (e.g. a ranged and a melee profile)
+            hit = next((x["name"] for x in weapons if x["name"].lower() == wname), None) or \
+                next((x["name"] for x in weapons if wname in x["name"].lower()), None)
+            if hit:
+                firing += [(x, n) for x in weapons if x["name"] == hit]
             else:
                 notes.append(f"loadout weapon not found: {wname}")
     else:

@@ -39,9 +39,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bsdata  # noqa: E402
 import metrics  # noqa: E402
+import check_list  # noqa: E402
 
 CATS = ["horde", "elite", "tank", "durability", "oc", "move"]
-UNIT_LIMIT = {"Incursion": 2, "Strike Force": 3, "Onslaught": 3}
+UNIT_LIMIT = check_list.UNIT_LIMIT  # single source of truth with the validator
 
 
 def parse_kv(s, cast=float):
@@ -74,14 +75,11 @@ def paid_wargear(unit, loadout):
     """Points for paid options named in a --loadout (same rule as check_list: pts x count)."""
     if not loadout:
         return 0
-    total = 0
-    for o in unit.get("options", []):
-        if not o.get("pts") or o.get("enhancement_slot") or "name" not in o:
-            continue
-        nm = o["name"].lower()
-        n = loadout.get(nm) or next((c for w, c in loadout.items() if nm in w or w in nm), 0)
-        total += o["pts"] * n
-    return total
+    opts = {o["name"]: o["pts"] for o in unit.get("options", [])
+            if o.get("pts") and not o.get("enhancement_slot") and "name" in o}
+    # same matcher as check_list.py: longest name wins, so "Flamer" is not charged inside "Heavy flamer"
+    text = ", ".join(f"{c}x {w}" for w, c in loadout.items())
+    return sum(opts[k] * c for k, c in check_list.named_counts(text, opts).items())
 
 
 def parse_must(s):
@@ -135,22 +133,40 @@ class Problem:
         # options: one per points tier (largest size of that tier)
         self.options = []
         for u in pool:
+            have = self.owned.get(u["name"].lower(), 0) if self.owned else 0
             for t in u["points"]:
                 lo = loadouts.get(u["name"].lower())
-                variants = [] if lo else metrics.bulk_types(u, t["best_size"])
-                if len(variants) > 1:
-                    for v in variants:
-                        self.options.append(self._option(u, t["best_size"], None, v))
-                else:
-                    self.options.append(self._option(u, t["best_size"], lo))
+                tlo = t["models"].partition("-")[0]
+                sizes = [t["best_size"]]
+                # owning fewer models than the tier's maximum: a smaller size of the same tier is still legal
+                if self.owned and int(tlo) <= have < t["best_size"]:
+                    sizes = [have]
+                for sz in sizes:
+                    variants = [] if lo else metrics.bulk_types(u, sz)
+                    if len(variants) > 1:
+                        for v in variants:
+                            self.options.append(self._option(u, sz, None, v))
+                    else:
+                        self.options.append(self._option(u, sz, lo))
         # forced picks
         self.must = []
         for name, size in parse_must(a.must):
             u = find(units, name)
             if not u:
                 raise SystemExit(f"--must unit not found: {name}")
+            if size and size != "max" and not metrics.legal_size(u, int(size)):
+                raise SystemExit(f"--must {u['name']}:{size}: not a legal size (legal: "
+                                 + ", ".join(t["models"] for t in u["points"]) + ")")
             sz = metrics.pick_size(u, size)[0] if size else u["points"][0]["best_size"]
             self.must.append(self._option(u, sz, loadouts.get(u["name"].lower())))
+        if self.owned:
+            used = Counter()
+            for o in self.must:
+                used[o["name"]] += o["size"]
+                have = self.owned.get(o["name"].lower(), 0)
+                if used[o["name"]] > have:
+                    raise SystemExit(f"--must {o['name']}: needs {used[o['name']]} models but --owned has {have}"
+                                     + ("" if have else " (add it to the collection or drop --owned)"))
         # references: median per-point value of the candidate pool x budget
         self.ref = {}
         for c in CATS:
@@ -309,6 +325,7 @@ def main():
     a = ap.parse_args()
     if not a.battle_size:
         a.battle_size = "Incursion" if a.points <= 1000 else "Onslaught" if a.points > 2000 else "Strike Force"
+    a.battle_size = check_list.norm_size(a.battle_size)  # accepts "incursion", "Strike Force", ...
     pr = Problem(a)
     sols = pr.search(a.iterations, a.seed, a.top)
     if a.json:

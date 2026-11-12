@@ -40,7 +40,7 @@ from pathlib import Path
 
 REPO_URL = "https://github.com/BSData/wh40k-11e.git"
 ZIP_URL = "https://codeload.github.com/BSData/wh40k-11e/zip/refs/heads/main"
-COMPILER_VERSION = 14
+COMPILER_VERSION = 15
 
 PTS = "51b2-306e-1021-d207"
 DETACHMENT_POINTS = "82ae-1066-5107-6ae0"
@@ -533,8 +533,10 @@ def collect(unit, res):
                 if key not in [(u["name"], tuple(u["stats"].items())) for u in unit_profiles]:
                     unit_profiles.append({"name": p["name"], "stats": {k: v for k, v in ch.items() if k != "Base"}, "base": ch.get("Base", "")})
             elif tn in ("Ranged Weapons", "Melee Weapons"):
-                w = weapons.setdefault(p["name"], {"name": p["name"], "type": "ranged" if tn.startswith("Ranged") else "melee",
-                                                    **{k: v for k, v in ch.items()}, "carried_by": set()})
+                # keyed by (name, kind): a weapon can have a ranged and a melee profile with the same name
+                kind = "ranged" if tn.startswith("Ranged") else "melee"
+                w = weapons.setdefault((p["name"], kind), {"name": p["name"], "type": kind,
+                                                           **{k: v for k, v in ch.items()}, "carried_by": set()})
                 if carrier:
                     w["carried_by"].add(carrier)
             elif tn == "Transport":
@@ -1244,7 +1246,7 @@ def cmd_detachments(a):
         if not full:  # shortlist view: one line, effects only with --only/--full
             def _enh(e):
                 m = re.match(r"\s*([A-Z' ]+?) model only", e["text"] or "")
-                return f"{e['name']} {e['pts']}" + (f" [{m.group(1).title()}]" if m else "") + (f" x{e['max_in_army']}" if e["max_in_army"] > 1 else "")
+                return f"{e['name']} {e['pts']}" + (f" [{m.group(1).title()}]" if m else "") + (f" x{e['max_in_army']}" if (e["max_in_army"] or 1) > 1 else "")
             if det["enhancements"]:
                 print("  Enh (name pts [restriction]): " + "; ".join(_enh(e) for e in det["enhancements"]))
             continue
