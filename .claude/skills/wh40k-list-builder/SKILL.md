@@ -107,7 +107,7 @@ then the JSON and `EOF`. PowerShell: `@'` + JSON + `'@ | python scripts/check_li
  "units": [
    {"name": "Overlord", "enhancement": "Veil of Darkness", "attached_to": "Lychguard", "warlord": true, "wargear": "Voidscythe"},
    {"name": "Lychguard", "models": 10},
-   {"name": "Tyrannofex", "wargear": "Rupture cannon"}]}
+   {"name": "Immortals", "models": 10}]}
 ```
 - `wargear`: chosen weapons with counts (`"4x Khornate eviscerator, 2x Plasma pistol"`);
   paid options (`O +20pts …` in `bsdata.py unit`) are charged only when named; counts are

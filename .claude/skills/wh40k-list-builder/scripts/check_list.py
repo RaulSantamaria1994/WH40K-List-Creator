@@ -149,6 +149,24 @@ def check_enhancement_bearer(unit, enh, faction_keywords, faction_units=()):
     return None, None
 
 
+def _lead_name(s):
+    """Datasheet name without a trailing [Legends] / [Crucible] tag, lower case."""
+    return re.sub(r"\s*\[[^\]]*\]\s*$", "", s.lower()).strip()
+
+
+def leads_body(leads, body_name, all_names):
+    """Can a Leader whose 'can be attached to' list is `leads` join the unit `body_name`?
+
+    Entries that are real datasheet names must match exactly ('Intercessor Squad' does not
+    cover 'Heavy Intercessor Squad'); other entries (keywords, name prefixes) match loosely."""
+    b = _lead_name(body_name)
+    for l in leads:
+        l = _lead_name(l)
+        if l == b or (l not in all_names and (l in b or b in l)):
+            return True
+    return False
+
+
 def norm_size(s):
     s = (s or "Strike Force").lower()
     if "incur" in s or s.startswith("1"):
@@ -162,6 +180,8 @@ def find_unit(units, name):
     n = name.lower().strip()
     exact = [u for u in units if u["name"].lower() == n]
     if exact:
+        # a datasheet can appear twice (e.g. a hidden legacy copy): prefer the visible one
+        exact.sort(key=lambda u: bool(u.get("hidden")))
         return exact[0], []
     sub = [u for u in units if n in u["name"].lower()]
     if len(sub) == 1:
@@ -341,8 +361,11 @@ def check(spec):
     d = bsdata.load(spec["faction"])
     size = norm_size(spec.get("battle_size"))
     lim = d["limits"]
-    pts_limit = spec.get("points_limit") or lim["battle_sizes"][size]
+    size_limit = lim["battle_sizes"][size]
+    pts_limit = spec.get("points_limit") or size_limit
     errors, warnings = [], []
+    if pts_limit > size_limit:
+        errors.append(f"points_limit {pts_limit} exceeds the {size_limit} pts of a {size} game")
     dets_by_name = {x["name"].lower(): x for x in d["detachments"]}
 
     # --- detachments
@@ -481,6 +504,10 @@ def check(spec):
             errors.append(f"{name} x{c} exceeds the limit of {lim_u} in {size}")
         if u["legends"]:
             warnings.append(f"{name} is a Legends unit (usually not allowed in matched play events)")
+        if u.get("crucible"):
+            warnings.append(f"{name} is a Crucible unit (not for matched play)")
+        if u.get("hidden"):
+            warnings.append(f"{name} is flagged hidden in the data (not normally selectable); verify it is legal for this army")
         if u["ally"]:
             warnings.append(f"{name} is an allied unit ({u['ally']}): check the allied-units rules of your detachment/faction")
 
@@ -505,23 +532,49 @@ def check(spec):
     # characters & attachments
     if not any("Character" in r["unit"]["keywords"] for r in rows):
         errors.append("The army needs at least one CHARACTER (Warlord)")
+    warlords = [r for r in rows if r["entry"].get("warlord")]
+    if len(warlords) > 1:
+        errors.append("More than one unit is marked as Warlord: " + ", ".join(r["label"] for r in warlords))
+    for r in warlords:
+        if "Character" not in r["unit"]["keywords"]:
+            errors.append(f"{r['unit']['name']} is marked as Warlord but is not a CHARACTER")
+    if rows and not warlords:
+        warnings.append('No unit is marked as Warlord (add "warlord": true to a CHARACTER)')
+    all_names = {_lead_name(x["name"]) for x in d["units"]}
     attached = defaultdict(list)
+    attached_ids = set()
     for r in rows:
         tgt = r["entry"].get("attached_to")
         if not tgt:
             if "Support" in r["unit"]["keywords"] and "Character" in r["unit"]["keywords"]:
                 errors.append(f"{r['unit']['name']} is a SUPPORT character: it must be attached to a bodyguard unit (attached_to)")
             continue
+        if "Character" not in r["unit"]["keywords"]:
+            errors.append(f"{r['unit']['name']} is not a CHARACTER: only Leader/Support characters can be attached to another unit")
+            continue
         hits = labels.get(str(tgt).lower())
         if not hits:
             errors.append(f"{r['label']}: attached_to '{tgt}' does not match any unit label")
             continue
+        if len(hits) > 1:
+            errors.append(f"{r['label']}: attached_to '{tgt}' matches {len(hits)} units; give each one a unique \"label\"")
+            continue
         body = hits[0]
-        leads = [x.lower() for x in r["unit"].get("leader_of", [])]
-        if leads and not any(l in body["unit"]["name"].lower() or body["unit"]["name"].lower() in l for l in leads):
-            errors.append(f"{r['unit']['name']} cannot be attached to {body['unit']['name']} (can lead: {', '.join(r['unit']['leader_of'])})")
+        if body is r:
+            errors.append(f"{r['label']} cannot be attached to itself")
+            continue
+        leads = r["unit"].get("leader_of", [])
+        if not leads:
+            warnings.append(f"{r['unit']['name']}: the data does not list which units it can lead; "
+                            f"check on its datasheet that it can join {body['unit']['name']}")
+        elif not leads_body(leads, body["unit"]["name"], all_names):
+            errors.append(f"{r['unit']['name']} cannot be attached to {body['unit']['name']} (can lead: {', '.join(leads)})")
         kind = "Support" if "Support" in r["unit"]["keywords"] else "Leader"
         attached[body["label"]].append((kind, r))
+        attached_ids.add(id(r))
+    for lbl in attached:
+        if id(labels[lbl.lower()][0]) in attached_ids:
+            errors.append(f"{lbl} is itself attached to another unit, so it cannot also be a bodyguard")
     for lbl, lst in attached.items():
         kinds = Counter(k for k, _ in lst)
         for k, c in kinds.items():
