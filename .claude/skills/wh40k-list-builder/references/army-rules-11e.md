@@ -59,6 +59,24 @@ costs 10 more, so the second-best option is now better value").
 - **Support** characters must be attached to a bodyguard. Leaders may run alone.
 - Valid bodyguards are in the "Leader" ability text (`leader_of` in the data).
 
+## Wargear and unit composition
+
+Datasheets limit equipment: special/heavy weapons per N models, one choice per model,
+"all models must take the same weapon", fixed compositions ("1 Sergeant and 9 Troopers").
+BSData encodes them as constraints, modifiers and error rules; `scripts/loadout.py`
+evaluates them for any unit (`bsdata.py loadout <faction> <unit>` prints them).
+
+- "Max X … per N models" rules are often encoded only for some sizes (e.g. below 20
+  models); the scripts apply the written rule at every size.
+- Unit sizes are filtered to those the rules allow (e.g. Cadian Shock Troops 10 or 20).
+- Complex datasheets the engine cannot confirm (some Kill Teams, Recon squads) are
+  flagged: check the official datasheet.
+- Manual corrections: `data/wargear_overrides.json`, e.g.
+  `[{"unit": "Khorne Berzerkers", "source": "Codex 2026", "rules": [{"items":
+  ["Khornate eviscerator"], "per_models": 5, "max": 1, "message": "Max 1 per 5 models"}]}]`
+  (`items` = entry names counted across the unit; limit = `max` per `per_models` models).
+- `python scripts/test_loadout.py` re-checks the engine after a data update.
+
 ## Allies and Legends
 
 - Units tagged `[ally: …]` (Agents of the Imperium, Imperial/Chaos Knights, Titans,

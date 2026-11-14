@@ -49,6 +49,7 @@ python scripts/bsdata.py units "<faction>" [--role Battleline|Character|Transpor
 python scripts/bsdata.py detachments "<faction>"                    # shortlist: rules ~200 chars, enhancements as names + pts
 python scripts/bsdata.py detachments "<faction>" --only "A,B"       # finalists: full rule and enhancement text
 python scripts/bsdata.py unit "<faction>" "A,B,C"                   # full datasheets (long): weapons, abilities, leaders, options, wargear limits (L lines)
+python scripts/bsdata.py loadout "<faction>" "<unit>" --size N      # model types, weapon choices and limits + a legal composition
 ```
 `units` once; `unit` only for characters and units you are really considering.
 
@@ -84,7 +85,8 @@ python scripts/optimize.py "<faction>" --points 2000 --must "Overlord,Lychguard:
 ```
 (One line, no `\` continuations: they break in PowerShell.)
 `--must` = `Name[:size][xCopies]`; characters are only included if forced. Paid wargear in
-`--loadout` is priced in; `[variant]` tags show the assumed weapon option. It prints one
+`--loadout` is priced in; `[variant]` tags show the assumed weapon option and `| …` the legal composition (wargear)
+behind the numbers; copy it into the list. It prints one
 draft (`--top N` for more): fix it with the checklist and re-run with other
 `--must`/weights if needed (cheap).
 
@@ -120,8 +122,14 @@ then the JSON and `EOF`. PowerShell: `@'` + JSON + `'@ | python scripts/check_li
 ```
 - `wargear`: chosen weapons with counts (`"4x Khornate eviscerator, 2x Plasma pistol"`);
   paid options (`O +20pts …` in `bsdata.py unit`) are charged only when named; counts are
-  checked against the datasheet's `L` lines. Optional `"loadout"` (all weapons, for
-  metrics) and `"mods"` (list or per unit).
+  checked against the datasheet's `L` lines and its "Max X per N models" rules. Optional
+  `"loadout"` (all weapons, for metrics) and `"mods"` (list or per unit).
+- Units with special weapons or fixed compositions: prefer `"composition"` as lines, as
+  `loadout` or the optimiser print them (`[{"model": "Khorne Berzerker Champion", "count": 1,
+  "options": ["Plasma pistol"]}, {"model": "Berzerker w/ eviscerator and plasma pistol",
+  "count": 2}, {"model": "Khorne Berzerker", "count": 7}]`; `{"options": ["1 Shock Trooper
+  Sergeant and 9 Shock Troopers"]}` picks a fixed composition). It is validated against
+  every datasheet rule in BSData and sets the model count. Never exceed those limits.
 - It prices everything, checks points, DP, wargear, tags, copies, enhancements and
   attachments, and prints the list. Fix every error; resolve or explain warnings. Never
   show a list that fails.

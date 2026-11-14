@@ -145,8 +145,10 @@ lo dice y lista las opciones en lugar de adivinar.
 | `bsdata.py` | Descarga y compila BSData; lista facciones, unidades, datasheets, destacamentos y límites |
 | `metrics.py` | Mathhammer por unidad, y comparación de listas completas (`--compare`) |
 | `optimize.py` | Busca combinaciones de unidades bajo un presupuesto de puntos |
+| `loadout.py` | Motor de reglas de equipo: tipos de modelo, elecciones de armas y sus límites para cualquier unidad |
 | `check_list.py` | Calcula puntos, valida e imprime una lista |
 | `library.py` | Guarda tus colecciones y las listas validadas en `~/.wh40k` (fuera del repo) |
+| `test_loadout.py` | Comprueba el motor de equipo (casos conocidos + barrido de todas las unidades) |
 
 En Windows el comando suele ser `python` en lugar de `python3`.
 
@@ -208,7 +210,13 @@ y solo las muestra por pantalla.
 - `wargear`: texto libre; las opciones con coste en los datos (p. ej. `Rupture cannon` +20) se cobran si aparecen aquí.
   Pon la cantidad delante (`"4x Khornate eviscerator, 2x Plasma pistol"`): se comprueba contra los
   límites del datasheet para ese tamaño de unidad.
-- `composition` (opcional): modelos por tipo, `{"Berzerker w/ eviscerator and bolt pistol": 4}`.
+- `composition` (opcional): modelos por tipo, `{"Berzerker w/ eviscerator and bolt pistol": 4}`,
+  o mejor por líneas, como las imprime `bsdata.py loadout` o el optimizador:
+  `[{"model": "Khorne Berzerker Champion", "count": 1, "options": ["Plasma pistol"]},
+  {"model": "Berzerker w/ eviscerator and plasma pistol", "count": 2}, {"model": "Khorne Berzerker", "count": 7}]`.
+  Por líneas se valida contra **todas** las reglas del datasheet en BSData (incluidas
+  composiciones fijas como `{"options": ["1 Shock Trooper Sergeant and 9 Shock Troopers"]}`)
+  y fija el número de modelos.
 - `loadout` (opcional, para métricas): `"3xGauss destructor,3xClose combat weapon"`; también se valida.
 
 ## Reglas de 11ª edición que aplica
@@ -233,9 +241,13 @@ Upgrade en unidades no personaje, Epic Heroes únicos y sin mejoras. Detalle en
   cuentan si se pasan con `--mods` (p. ej. `--mods "lethal@vehicle,monster"` o
   `--mods "MONSTER: oc+2"`); lo demás Claude lo añade al razonar y lo dice.
 - Los modelos con muchas armas (tanques, monstruos) se infravaloran salvo que se indique su `loadout`.
-- Los límites de wargear salen de las restricciones de BSData: si una depende de otras elecciones
-  (otra arma, el destacamento) se avisa en vez de dar error, y unas pocas unidades cuya estructura
-  en los datos no encaja con su tamaño no se comprueban (también se avisa).
+- Los límites de wargear salen de las restricciones y reglas de error de BSData. Las reglas
+  "Max X … per N models" se aplican a cualquier tamaño aunque BSData solo las codifique para
+  algunos (p. ej. 10 Khorne Berzerkers: máx. 2 evisceradores y 2 pistolas de plasma más la del
+  Champion; 20: máx. 4 y 4). Si un límite depende de otras elecciones se avisa en vez de dar error.
+- El motor confirma una composición legal para el 99,4 % de las combinaciones unidad/tamaño de
+  juego normal; 19 unidades complejas (p. ej. Fortis Kill Team, Cadian Recon Squad) se marcan como
+  no verificadas. Correcciones manuales: `data/wargear_overrides.json`.
 - El límite de copias en Onslaught no está confirmado públicamente (se asume 3).
 - Errores de los propios datos de BSData pasan a la skill (p. ej. el destacamento Deathwatch
   Support lista mejoras de otros capítulos); los scripts avisan de lo que detectan.

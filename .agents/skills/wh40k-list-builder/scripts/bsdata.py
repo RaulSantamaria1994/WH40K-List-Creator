@@ -48,7 +48,7 @@ MAX_ZIP_BYTES = 200 * 1024 * 1024        # download cap (the real archive is ~15
 MAX_UNPACKED_BYTES = 1024 * 1024 * 1024  # zip-bomb guard
 MAX_ZIP_FILES = 20000
 RETRY_AFTER = 600                         # seconds to wait before retrying a failed update
-COMPILER_VERSION = 16
+COMPILER_VERSION = 18
 
 PTS = "51b2-306e-1021-d207"
 DETACHMENT_POINTS = "82ae-1066-5107-6ae0"
@@ -924,7 +924,7 @@ def wargear_limits(unit, res, mn, mx):
 
 
 def leader_targets(abilities):
-    txt = abilities.get("Leader")
+    txt = abilities.get("Leader") or abilities.get("Support")  # Support characters list their bodyguards too
     if not txt:
         return []
     m = re.search(r"following units?:\s*(.*)", txt, re.I)
@@ -935,11 +935,130 @@ def leader_targets(abilities):
     return [i.title() if i.isupper() else i for i in items if i and len(i) < 60]
 
 
-def compile_unit(unit, link, res, source, faction_cat, ally_source):
+def _slim_mod(m):
+    out = {"field": m.get("field"), "type": m.get("type"), "value": m.get("value")}
+    for k in ("conditions", "conditionGroups", "repeats"):
+        if m.get(k):
+            out[k] = m[k]
+    return out
+
+
+def build_tree(unit, res, cost_ids):
+    """Selection tree of a unit for wargear validation (see loadout.py).
+
+    Every node keeps its BattleScribe id (target id for links, which is what
+    conditions refer to), selection constraints, the modifiers that can change
+    those constraints or raise errors/warnings, its points and the weapon profiles
+    it grants. Crusade / enhancement groups are left out."""
+    counter = [0]
+    cids = set()
+
+    def node(e, depth, link_id=None):
+        counter[0] += 1
+        kind = e.get("type") or "group"
+        if kind not in ("model", "upgrade", "unit", "selectionEntryGroup", "group"):
+            kind = "upgrade"
+        if kind == "selectionEntryGroup":
+            kind = "group"
+        n = {"uid": counter[0], "id": e.get("id"), "name": e.get("name", ""), "kind": kind}
+        if link_id:
+            n["link_id"] = link_id
+        if e.get("hidden"):
+            n["hidden"] = True
+        if cost(e):
+            n["pts"] = cost(e)
+        cons = []
+        for cn in e.get("constraints", []) or []:
+            if cn.get("field") != "selections" or cn.get("scope") in ("force", "roster"):
+                continue
+            cons.append({"id": cn["id"], "type": cn["type"], "value": cn.get("value", 0), "scope": cn.get("scope"),
+                         "deep": bool(cn.get("includeChildSelections"))})
+            cids.add(cn["id"])
+        if cons:
+            n["constraints"] = cons
+        mods = [_slim_mod(m) for m in all_mods(e)
+                if m.get("field") in ("error", "warning") and m.get("type") == "add"
+                or (m.get("field") not in cost_ids and m.get("field") not in ("hidden", "name", "annotation", "category")
+                    and m.get("type") in ("set", "increment", "decrement", "multiply"))]
+        if mods:
+            n["mods"] = mods
+        w = [p["name"] for p in profiles_of(e, res) if p.get("typeName") in ("Ranged Weapons", "Melee Weapons")]
+        if w:
+            n["weapons"] = w
+        if e.get("defaultSelectionEntryId"):
+            n["default"] = e["defaultSelectionEntryId"]
+        kids = []
+        if depth < 10:
+            for x in e.get("selectionEntries", []) or []:
+                if x.get("name", "").lower() not in SKIP_GROUPS:
+                    kids.append(node(x, depth + 1))
+            for x in e.get("selectionEntryGroups", []) or []:
+                if x.get("name", "").lower() not in SKIP_GROUPS:
+                    kids.append(node(x, depth + 1))
+            for l in e.get("entryLinks", []) or []:
+                tgt, _ = res.entry(l.get("targetId"))
+                if tgt is not None and tgt.get("name", "").lower() not in SKIP_GROUPS:
+                    kids.append(node(merged(l, tgt), depth + 1, link_id=l.get("id")))
+        if kids:
+            n["children"] = kids
+        return n
+
+    root = node(unit, 0)
+    root["kind"] = "unit"
+
+    # keep only modifiers that touch a constraint of this unit, or raise errors/warnings
+    def prune(n):
+        if "mods" in n:
+            n["mods"] = [m for m in n["mods"] if m["field"] in cids or m["field"] in ("error", "warning")]
+            if not n["mods"]:
+                del n["mods"]
+        for c in n.get("children", []):
+            prune(c)
+    prune(root)
+    return root
+
+
+def legal_sizes(unit, mn, mx):
+    """Unit sizes for which the datasheet rules (loadout.py) allow a legal composition.
+
+    Candidates are the range found from the model entries plus the sizes of fixed
+    compositions ("5 models" / "10 models" packages). Returns [] if the rules engine
+    cannot confirm any size (then the raw range is kept)."""
+    import loadout  # local import: loadout does not depend on bsdata
+    t = loadout.Tree(unit)
+    if t.single:
+        return [1]
+    cands = set(range(max(1, mn), max(mn, mx) + 1))
+    for g in loadout.package_groups(t):
+        for c in g.get("children", []):
+            alloc = loadout._allocate(t, {m["uid"] for m in t.models}, 0)
+            inside = sum(loadout.static_min(m) for m in t.subtree(c) if m["kind"] == "model")
+            cands |= set(range(max(1, inside), inside + 25))
+    if len(cands) > 60:
+        cands = set(sorted(cands)[:60])
+    out = []
+    for n in sorted(cands):
+        try:
+            comp = loadout.default_composition(unit, n)
+            v = loadout.validate(unit, comp)
+        except Exception:
+            return []
+        if v["models"] == n and not v["errors"]:
+            out.append(n)
+    return out
+
+
+def compile_unit(unit, link, res, source, faction_cat, ally_source, cost_ids=frozenset()):
     u = merged(link, unit)
     models, weapons, abilities, unit_profiles, rules, options, transport, enh = collect(u, res)
     mn, mx = model_count_range(u, models)
+    tree = build_tree(u, res, cost_ids)
+    legal = legal_sizes({"name": u["name"], "tree": tree}, mn, mx)  # sizes the datasheet rules allow
+    if legal:
+        mn, mx = min(legal), max(legal)
     tiers, pnotes = points_by_size(u, res, models, mn, mx)
+    if legal:
+        tiers = {n: v for n, v in tiers.items() if n in legal} or tiers
     cats = []
     for cl in u.get("categoryLinks", []) or []:
         cats.append(cl.get("name") or res.category_names.get(cl.get("targetId"), ""))
@@ -979,6 +1098,8 @@ def compile_unit(unit, link, res, source, faction_cat, ally_source):
         "transport": transport,
         "options": options[:40],
         "limits": wargear_limits(u, res, mn, mx),
+        "tree": tree,
+        "loadout_verified": bool(legal),
     }
 
 
@@ -1194,6 +1315,7 @@ def build(faction_query, force=False):
         except Exception:
             pass
     res = Resolver(world, fac)
+    cost_ids = frozenset(c["id"] for c in world.gs.c.get("costTypes", []))
     roots = []
     for cat, imp in res.order:
         if not imp:
@@ -1222,7 +1344,7 @@ def build(faction_query, force=False):
         if hidden_for_faction(merged(link, e), fac_ids):
             continue
         try:
-            cu = compile_unit(e, link, res, cat.name, fac, ally)
+            cu = compile_unit(e, link, res, cat.name, fac, ally, cost_ids)
         except RecursionError:
             continue
         units.append(cu)
@@ -1444,6 +1566,26 @@ def cmd_detachments(a):
               "- usually allied-faction or Crusade items; ignore them for matched play)")
 
 
+def cmd_loadout(a):
+    import loadout
+    d = load(a.faction)
+    q = a.name.lower()
+    u = next((x for x in d["units"] if x["name"].lower() == q), None) or next((x for x in d["units"] if q in x["name"].lower()), None)
+    if not u:
+        raise SystemExit(f"unit not found: {a.name}")
+    print(f"## {u['name']} — legal sizes: {', '.join(t['models'] for t in u['points'])}"
+          + ("" if u.get("loadout_verified") else "  (sizes NOT verified by the rules engine: check the datasheet)"))
+    print("Options and limits from BSData ('per model' = each model; 'scales with unit' = changes with unit size):")
+    print(loadout.rules_text(u))
+    sizes = [a.size] if a.size else sorted({t["best_size"] for t in u["points"]} | {int(t["models"].split("-")[0]) for t in u["points"]})
+    for n in sizes:
+        comp = loadout.default_composition(u, n)
+        v = loadout.validate(u, comp, catalogue=d["faction"])
+        print(f"\nDefault composition x{n}: {json.dumps(comp, ensure_ascii=False)}")
+        if v["errors"]:
+            print("  errors: " + "; ".join(v["errors"]))
+
+
 def cmd_limits(a):
     rd = sync()
     print(json.dumps(army_limits(World(rd)), indent=1))
@@ -1458,6 +1600,8 @@ def main():
     s = sp.add_parser("units"); s.add_argument("faction"); s.add_argument("--legends", action="store_true"); s.add_argument("--allies", action="store_true"); s.add_argument("--grep"); s.add_argument("--role", help="filter by role, e.g. Battleline, Character, Transport")
     s = sp.add_parser("unit"); s.add_argument("faction"); s.add_argument("name")
     s = sp.add_parser("detachments"); s.add_argument("faction"); s.add_argument("--full", action="store_true"); s.add_argument("--only", help="comma separated detachment names (substring); prints them untruncated")
+    s = sp.add_parser("loadout", help="model types, wargear choices and their limits (+ a legal default composition)")
+    s.add_argument("faction"); s.add_argument("name"); s.add_argument("--size", type=int)
     sp.add_parser("limits")
     a = ap.parse_args()
     if a.cmd == "sync":
@@ -1473,6 +1617,8 @@ def main():
         cmd_unit(a)
     elif a.cmd == "detachments":
         cmd_detachments(a)
+    elif a.cmd == "loadout":
+        cmd_loadout(a)
     elif a.cmd == "limits":
         cmd_limits(a)
 

@@ -118,5 +118,49 @@ class OptimizeTests(unittest.TestCase):
         self.assertIn("Immortals x8", out)
 
 
+VOTLW = {"faction": "chaos space marines", "battle_size": "Strike Force", "detachments": ["Veterans of the Long War"]}
+LORD = {"name": "Chaos Lord", "warlord": True}
+
+
+class WargearRuleTests(unittest.TestCase):
+    """Datasheet wargear rules read from BSData (loadout.py), any unit, any size."""
+
+    def bzk(self, models, wargear):
+        return check(VOTLW, [LORD, {"name": "Khorne Berzerkers", "models": models, "wargear": wargear}])[0]
+
+    def test_berzerkers_10_allow_2_eviscerators_and_3_plasma(self):
+        self.assertEqual(self.bzk(10, "3x Plasma pistol, 2x Khornate eviscerator"), [])
+
+    def test_berzerkers_10_reject_3_eviscerators(self):
+        self.assertTrue(has(self.bzk(10, "3x Khornate eviscerator"), "per 5 models"))
+
+    def test_berzerkers_10_reject_4_plasma(self):
+        self.assertTrue(has(self.bzk(10, "4x Plasma pistol"), "per 5 models"))
+
+    def test_per_n_rule_applies_beyond_encoded_sizes(self):
+        # BSData only encodes "Max 1 per 5 models" below 20 models
+        self.assertTrue(has(self.bzk(20, "6x Khornate eviscerator"), "allows 4"))
+        self.assertEqual(self.bzk(20, "4x Khornate eviscerator"), [])
+
+    def test_composition_lines_are_validated(self):
+        comp = [{"model": "Khorne Berzerker Champion", "count": 1, "options": ["Plasma pistol"]},
+                {"model": "Berzerker w/ eviscerator and plasma pistol", "count": 2},
+                {"model": "Berzerker w/ chainblade and plasma pistol", "count": 1},
+                {"model": "Khorne Berzerker", "count": 6}]
+        errs = check(VOTLW, [LORD, {"name": "Khorne Berzerkers", "composition": comp}])[0]
+        self.assertTrue(has(errs, "plasma pistol per 5 models"), errs)
+        comp[2]["count"], comp[3]["count"] = 0, 7
+        self.assertEqual(check(VOTLW, [LORD, {"name": "Khorne Berzerkers", "composition": comp}])[0], [])
+
+    def test_fixed_composition_sets_size_and_price(self):
+        d = bsdata.load("astra militarum")
+        u = next(x for x in d["units"] if x["name"] == "Cadian Shock Troops")
+        self.assertEqual([t["models"] for t in u["points"]], ["10", "20"])
+
+    def test_engine_known_cases(self):
+        code, out, err = run("test_loadout.py", "--quick")
+        self.assertEqual(code, 0, out + err[-400:])
+
+
 if __name__ == "__main__":
     unittest.main()

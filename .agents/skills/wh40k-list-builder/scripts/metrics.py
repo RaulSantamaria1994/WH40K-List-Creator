@@ -46,6 +46,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bsdata  # noqa: E402
+import loadout as loadout_rules  # noqa: E402
 
 TARGETS = {
     # name: (T, Sv, Inv, W per model, models, keywords)
@@ -415,7 +416,70 @@ def legal_size(unit, size):
     return False
 
 
-def unit_metrics(unit, size=None, loadout=None, prefer=None, mods=None):
+_COMP_CACHE = {}
+
+
+def _line_damage(unit, groups, tgt, idx, mods=None):
+    """Damage of ONE model of a composition line: every ranged weapon fires (pistols
+    only if it has no other gun, unless it is a vehicle/monster); it fights with its best
+    melee weapon plus any [EXTRA ATTACKS] weapons."""
+    big = any(k in unit["keywords"] for k in ("Vehicle", "Monster"))
+    ranged, melee, extra = [], [], 0.0
+    for alts in groups:
+        ws = [w for a in alts for w in idx.get(a, [])]
+        if not ws:
+            continue
+        for kind in ("ranged", "melee"):
+            kw = [w for w in ws if w["type"] == kind]
+            if not kw:
+                continue
+            best = max(kw, key=lambda w: weapon_damage(w, tgt, mods))
+            if kind == "ranged":
+                ranged.append(best)
+            elif "extra attacks" in (best.get("Keywords") or "").lower():
+                extra += weapon_damage(best, tgt, mods)
+            else:
+                melee.append(weapon_damage(best, tgt, mods))
+    guns = [w for w in ranged if "pistol" not in (w.get("Keywords") or "").lower()]
+    if guns and not big:
+        ranged = guns
+    r = sum(weapon_damage(w, tgt, mods) * range_factor(w) for w in ranged)
+    rng = max([dice_avg(re.sub(r"[^\d]", "", w.get("Range", "") or "0") or 0) for w in ranged] or [0])
+    return r, (max(melee) if melee else 0.0) + extra, rng
+
+
+def composition_output(unit, comp, mods=None):
+    """Expected damage of a unit equipped as `comp` (see loadout.py)."""
+    v = loadout_rules.validate(unit, comp)
+    idx = {}
+    for w in unit["weapons"]:
+        idx.setdefault(w["name"], []).append(w)
+    out = {"ranged": {}, "melee": {}, "range": 0, "loadout_errors": v["errors"]}
+    for tn, tgt in TARGETS.items():
+        r = m = 0.0
+        for n, groups in v["weapons_by_line"]:
+            lr, lm, rng = _line_damage(unit, groups, tgt, idx, mods)
+            r += lr * n
+            m += lm * n
+            out["range"] = max(out["range"], rng)
+        out["ranged"][tn] = round(r, 2)
+        out["melee"][tn] = round(m, 2)
+    return out
+
+
+def legal_composition(unit, size, prefer=None):
+    """Strongest composition of `size` models that the datasheet rules allow."""
+    key = (unit["id"], unit["name"], size, prefer)
+    if key not in _COMP_CACHE:
+        def score(comp):
+            o = composition_output(unit, comp)
+            return sum(o["ranged"][t] + 0.7 * o["melee"][t] for t in ("meq", "teq", "vehicle")) + \
+                0.3 * (o["ranged"]["horde"] + o["melee"]["horde"])
+        _COMP_CACHE[key] = loadout_rules.default_composition(unit, size, score=score, prefer=prefer)
+    return _COMP_CACHE[key]
+
+
+def unit_metrics(unit, size=None, loadout=None, prefer=None, mods=None, composition=None):
     """mods: list of parsed modifiers (see parse_mods / mods_for_unit) already filtered for this unit."""
     size, pts = pick_size(unit, size)
     prof = unit["profiles"][0]["stats"] if unit["profiles"] else {}
@@ -428,9 +492,17 @@ def unit_metrics(unit, size=None, loadout=None, prefer=None, mods=None):
         W = 1
     OC = dice_avg(prof.get("OC"))
     M = dice_avg(re.sub(r"[^\d+-]", "", prof.get("M", "") or "0") or 0)
-    counts = allocate_models(unit, size, prefer)
     weapons = unit["weapons"]
     notes = []
+    comp = None
+    if not loadout and unit.get("tree") and (composition or unit.get("loadout_verified")):
+        comp = composition or legal_composition(unit, size, prefer)
+        counts = {}
+        for ln in comp:
+            if ln.get("model"):
+                counts[ln["model"]] = counts.get(ln["model"], 0) + ln.get("count", 1)
+    else:
+        counts = allocate_models(unit, size, prefer)
 
     # Build list of (weapon, number of models firing it)
     firing = []
@@ -455,11 +527,16 @@ def unit_metrics(unit, size=None, loadout=None, prefer=None, mods=None):
             notes.append("multi-weapon model: default counts only its best gun; pass --loadout for the real output")
 
     out = {"name": unit["name"], "size": size, "pts": pts, "M": M, "T": T, "Sv": Sv, "Inv": Inv, "W": W,
-           "models": counts, "notes": notes, "ranged": {}, "melee": {},
+           "models": counts, "notes": notes, "ranged": {}, "melee": {}, "composition": comp,
            "range": max([dice_avg(re.sub(r"[^\d]", "", w.get("Range", "") or "0") or 0) for w, _ in firing if w["type"] == "ranged"] or [0])}
-    for tn, tgt in TARGETS.items():
-        out["ranged"][tn] = round(sum(weapon_damage(w, tgt, mods) * n * range_factor(w) for w, n in firing if w["type"] == "ranged"), 2)
-        out["melee"][tn] = round(sum(weapon_damage(w, tgt, mods) * n for w, n in firing if w["type"] == "melee"), 2)
+    if comp is not None:
+        co = composition_output(unit, comp, mods)
+        out.update({"ranged": co["ranged"], "melee": co["melee"], "range": co["range"]})
+        notes[:] = [x for x in notes if not x.startswith("multi-weapon")]
+    else:
+        for tn, tgt in TARGETS.items():
+            out["ranged"][tn] = round(sum(weapon_damage(w, tgt, mods) * n * range_factor(w) for w, n in firing if w["type"] == "ranged"), 2)
+            out["melee"][tn] = round(sum(weapon_damage(w, tgt, mods) * n for w, n in firing if w["type"] == "melee"), 2)
 
     # durability
     total_w = W * size  # approximation: every model uses the first profile
@@ -538,7 +615,9 @@ def list_totals(spec, melee_weight=0.7, extra_mods=None):
             continue
         lo = parse_loadout(e["loadout"]) if e.get("loadout") else None
         specs = list(extra_mods or []) + _as_list(spec.get("mods")) + _as_list(e.get("mods"))
-        m = unit_metrics(u, e.get("models"), lo, mods=mods_for_unit(u, specs))
+        comp = e.get("composition") if isinstance(e.get("composition"), list) else None
+        size = e.get("models") or (loadout_rules.validate(u, comp)["models"] if comp else None)
+        m = unit_metrics(u, size, lo, mods=mods_for_unit(u, specs), composition=None if lo else comp)
         sc = derived(m, melee_weight)
         tot["horde"] += sc["horde"]
         tot["elite"] += sc["elite"]
