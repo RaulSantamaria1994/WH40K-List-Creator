@@ -127,12 +127,18 @@ python tools/sync_skill.py
 - Python 3.9+
 - `git` (recomendado) o acceso HTTPS a `github.com` para descargar los datos la primera vez.
   Los datos se guardan en `~/.cache/wh40k-11e` (configurable con `WH40K_DATA_DIR`) y se refrescan cada 12 h.
+- Por defecto se sigue la rama `main` de BSData. Para fijar los datos a una versión revisada
+  (reproducible, y a salvo de cambios posteriores en el repositorio de la comunidad) define
+  `WH40K_BSDATA_REF` con un SHA de commit, una etiqueta o una rama.
+- BSData lo edita la comunidad: el texto de reglas se limpia al compilarlo (se descartan caracteres
+  invisibles y frases que parezcan instrucciones a una IA) y se muestra marcado como dato no fiable.
 
 ## Uso directo de los scripts
 
 Todos los scripts están en `.agents/skills/wh40k-list-builder/scripts/` y se pueden usar sin
 ningún agente. Los nombres de facción se buscan de forma flexible (`necrons`, `blood angels`, `guard`,
-`tau`, `"Space Marines (Ultramarines)"`…).
+`tau`, `"Space Marines (Ultramarines)"`…); si un nombre es ambiguo (`marines`, `knights`) el script
+lo dice y lista las opciones en lugar de adivinar.
 
 | Script | Para qué |
 |---|---|
