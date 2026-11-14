@@ -177,8 +177,10 @@ class Problem:
     def _option(self, u, size, loadout, variant=None):
         m = metrics.unit_metrics(u, size, loadout, variant, mods=metrics.mods_for_unit(u, self.mods))
         sc = metrics.derived(m)
-        gear = paid_wargear(u, loadout)
+        comp = m.get("composition")
+        gear = metrics.loadout_rules.validate(u, comp)["wargear_pts"] if comp else paid_wargear(u, loadout)
         return {"name": u["name"], "size": m["size"], "pts": m["pts"] + gear, "gear_pts": gear, "scores": sc, "unit": u, "variant": variant,
+                "composition": comp,
                 "battleline": "Battleline" in u["keywords"], "epic": "Epic Hero" in u["keywords"]}
 
     def cost(self, items):
@@ -330,7 +332,8 @@ def main():
     sols = pr.search(a.iterations, a.seed, a.top)
     if a.json:
         print(json.dumps([{"value": round(v, 3), "points": pr.cost(items),
-                           "units": [{"name": o["name"], "models": o["size"], "pts": o["pts"], "variant": o.get("variant")} for o in items]}
+                           "units": [{"name": o["name"], "models": o["size"], "pts": o["pts"], "variant": o.get("variant"),
+                                      "composition": o.get("composition")} for o in items]}
                           for v, items in sols], indent=1))
         return
     print(f"# {pr.d['faction']} — budget {pr.budget} ({a.battle_size}), weights {{{', '.join(f'{k}={v:g}' for k, v in pr.weights.items() if v)}}}")
@@ -345,7 +348,10 @@ def main():
             seen[o["name"]] += 1
             sur = bsdata_surcharge(o["unit"], seen[o["name"]])
             var = f" [{o['variant']}]" if o.get("variant") else ""
-            lines[f"{o['name']} x{o['size']}{var} — {o['pts'] + sur} pts" + (f" (incl. +{sur} repeat surcharge)" if sur else "")] += 1
+            comp = o.get("composition") or []
+            gear = metrics.loadout_rules.describe(comp) if len(comp) > 1 or any(ln.get("options") for ln in comp) else ""
+            lines[f"{o['name']} x{o['size']}{var} — {o['pts'] + sur} pts" + (f" (incl. +{sur} repeat surcharge)" if sur else "")
+                  + (f" | {gear}" if gear else "")] += 1
         for txt, n in lines.items():
             print(f"  - {txt}" if n == 1 else f"  - {n}× {txt.replace(' pts', ' pts each', 1)}")
         cover = ", ".join(f"{c} {tot[c] / pr.ref[c]:.2f}x" for c in CATS if c != "move" and pr.weights.get(c))

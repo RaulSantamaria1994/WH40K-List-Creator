@@ -52,6 +52,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bsdata  # noqa: E402
+import loadout as loadout_rules  # noqa: E402
 
 DISPOSITIONS = {"Take and Hold", "Disruption", "Purge the Foe", "Priority Assets", "Reconnaissance"}
 # Unit Limit by battle size (doubled for BATTLELINE). Onslaught is not confirmed in
@@ -345,7 +346,25 @@ def wargear_limits_check(unit, models, text="", composition=None, loadout=None):
         cap = C.weapon(wname)
         if cap is not None and c > cap:
             report(wname, f"{c}x {wname} but at most {cap} in a unit of {n} model{'s' if n != 1 else ''}")
+    errs += per_n_check(unit, n, counts, composition, errs)
     return errs, warns
+
+
+def per_n_check(unit, n, weapon_counts, type_counts, already=()):
+    """BSData "Max X <item> per N models" error rules, applied at any unit size (the
+    data often encodes them only for some sizes, e.g. below 20 models)."""
+    if not unit.get("tree"):
+        return []
+    out = []
+    counts = {k.lower(): v for k, v in (weapon_counts or {}).items()}
+    for k, v in (type_counts or {}).items():
+        counts[k.lower()] = counts.get(k.lower(), 0) + v
+    for r in loadout_rules.per_n_rules(unit):
+        have = sum(counts.get(x.lower(), 0) for x in r["names"])
+        lim = (n // r["per"]) * r["max"] + r.get("other_carriers", 0)
+        if have > lim and not any(any(x.lower() in e.lower() for x in r["names"]) for e in already):
+            out.append(f"{unit['name']}: {have}x {' / '.join(sorted(r['names']))} but '{r['message']}' allows {lim} in a unit of {n}")
+    return out
 
 
 def surcharge(unit, copy_index):
@@ -413,7 +432,12 @@ def check(spec):
         if not u:
             errors.append(f"Unit '{entry['name']}' not found" + (f" (did you mean: {', '.join(cands)}?)" if cands else ""))
             continue
-        models = entry.get("models") or (u["points"][0]["best_size"] if u["points"] else 1)
+        comp = entry.get("composition")
+        comp_v = None
+        if isinstance(comp, list) and u.get("tree"):
+            comp_v = loadout_rules.validate(u, comp, catalogue=d["faction"])
+        models = entry.get("models") or (comp_v["models"] if comp_v else None) or \
+            (u["points"][0]["best_size"] if u["points"] else 1)
         p, err = price(u, models)
         if err:
             errors.append(err)
@@ -454,9 +478,22 @@ def check(spec):
             m = re.match(r"\s*(?:(\d+)\s*x\s*)?(.+?)\s*$", part, re.I)
             if m and m.group(2):
                 loadout[m.group(2).lower()] = int(m.group(1) or 1)
-        lerr, lwarn = wargear_limits_check(u, models, entry.get("wargear") or "", entry.get("composition"), loadout)
-        errors += lerr
-        warnings += lwarn
+        if comp_v is not None:
+            # full datasheet rules (model types, choices, per-N limits, fixed compositions)
+            v = comp_v
+            if entry.get("models") and entry["models"] != v["models"]:
+                errors.append(f"{u['name']}: 'models' is {entry['models']} but the composition has {v['models']}")
+            errors += [f"{u['name']} (wargear): {e}" for e in v["errors"]]
+            warnings += [f"{u['name']} (wargear): {w}" for w in v["warnings"]]
+            if not u.get("loadout_verified", True):
+                warnings.append(f"{u['name']}: the data's options for this unit could not be fully confirmed; check the datasheet")
+            names = {o.lower() for ln in comp for o in ln.get("options", [])}
+            gear_pts = v["wargear_pts"]
+            gear_names = {o["name"] for o in u.get("options", []) if o.get("name", "").lower() in names}
+        else:
+            lerr, lwarn = wargear_limits_check(u, models, entry.get("wargear") or "", comp, loadout)
+            errors += lerr
+            warnings += lwarn
         gear_slots = [o["name"] for o in u.get("options", []) if o.get("enhancement_slot") and o["name"] in gear_names]
         if gear_slots and enh_name:
             errors.append(f"{u['name']}: {', '.join(gear_slots)} uses an Enhancement slot, so the unit cannot also take {enh_name}")
