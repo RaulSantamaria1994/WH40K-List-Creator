@@ -40,7 +40,7 @@ from pathlib import Path
 
 REPO_URL = "https://github.com/BSData/wh40k-11e.git"
 ZIP_URL = "https://codeload.github.com/BSData/wh40k-11e/zip/refs/heads/main"
-COMPILER_VERSION = 16
+COMPILER_VERSION = 17
 
 PTS = "51b2-306e-1021-d207"
 DETACHMENT_POINTS = "82ae-1066-5107-6ae0"
@@ -755,7 +755,7 @@ def wargear_limits(unit, res, mn, mx):
 
 
 def leader_targets(abilities):
-    txt = abilities.get("Leader")
+    txt = abilities.get("Leader") or abilities.get("Support")  # Support characters list their bodyguards too
     if not txt:
         return []
     m = re.search(r"following units?:\s*(.*)", txt, re.I)

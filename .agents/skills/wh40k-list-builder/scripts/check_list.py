@@ -654,7 +654,9 @@ def render(spec, res):
             extras.append(f"repeat-copy surcharge +{r['extra']}")
         if r.get("gear_pts"):
             extras.append(f"paid wargear +{r['gear_pts']}")
-        if r["entry"].get("wargear"):
+        if isinstance(r["entry"].get("composition"), list):
+            extras.append(loadout_rules.describe(r["entry"]["composition"]))
+        elif r["entry"].get("wargear"):
             extras.append(r["entry"]["wargear"])
         if extras:
             parts.append(f"{indent}  • " + "; ".join(extras))
@@ -674,7 +676,11 @@ def render(spec, res):
             used.add(id(r))
             out += line(r, "  ")
             for kind, ch in attached.get(r["label"], []):
-                out.append(f"    + {kind}: {ch['unit']['name']} ({ch['cost']} pts)" + (f" — {ch['enh']}" if ch["enh"] else "") + (" — Warlord" if ch["entry"].get("warlord") else ""))
+                out.append(f"    + {kind}: {ch['unit']['name']} ({ch['cost']} pts)" + (f" — {ch['enh']}" if ch["enh"] else "") + (" — Warlord" if ch["entry"].get("warlord") else "")
+                           + (f" — {ch['entry']['wargear']}" if ch["entry"].get("wargear") else "")
+                           + (f" — {', '.join(o for ln in ch['entry']['composition'] for o in ln.get('options', []))}"
+                              if isinstance(ch["entry"].get("composition"), list)
+                              and any(ln.get("options") for ln in ch["entry"]["composition"]) else ""))
         out.append("")
     # attached characters are shown under their bodyguard; list them too for completeness
     if attached_ids:
